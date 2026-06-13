@@ -1,5 +1,6 @@
 import { Search, Filter } from 'lucide-react'
 import { useState } from 'react'
+import { useInventory } from '../context/InventoryContext'
 
 const STATUS_STYLES = {
   completed: 'bg-emerald-accent/10 text-emerald-accent',
@@ -7,7 +8,8 @@ const STATUS_STYLES = {
   processing: 'bg-indigo-accent/10 text-indigo-accent',
 }
 
-export default function SalesTracker({ sales }) {
+export default function SalesTracker() {
+  const { sales } = useInventory()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -21,9 +23,9 @@ export default function SalesTracker({ sales }) {
     return matchesSearch && matchesStatus
   })
 
-  const totalRevenue = sales.reduce((s, sale) => s + sale.amount, 0)
-  const completedCount = sales.filter((s) => s.status === 'completed').length
-  const pendingCount = sales.filter((s) => s.status === 'pending').length
+  const totalRevenue = sales.reduce((sum, sale) => sum + sale.amount, 0)
+  const completedCount = sales.filter((sale) => sale.status === 'completed').length
+  const pendingCount = sales.filter((sale) => sale.status === 'pending').length
 
   return (
     <div className="space-y-6 p-8">

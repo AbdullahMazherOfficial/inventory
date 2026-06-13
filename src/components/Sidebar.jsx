@@ -2,19 +2,23 @@ import {
   LayoutDashboard,
   Package,
   ShoppingCart,
-  TrendingUp,
+  FileText,
   LogOut,
   Gem,
 } from 'lucide-react'
+import { useInventory } from '../context/InventoryContext'
+import { ROLE_LABELS } from '../utils/inventoryHelpers'
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'stock', label: 'Stock Management', icon: Package },
-  { id: 'purchases', label: 'Purchases & Supplies', icon: ShoppingCart },
-  { id: 'sales', label: 'Sales Tracker', icon: TrendingUp },
+  { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
+  { id: 'reports', label: 'Reports', icon: FileText },
 ]
 
 export default function Sidebar({ activePage, onNavigate, onLogout }) {
+  const { role } = useInventory()
+
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-charcoal text-white shadow-2xl">
       <div className="border-b border-white/10 px-6 py-7">
@@ -37,9 +41,9 @@ export default function Sidebar({ activePage, onNavigate, onLogout }) {
         <p className="text-[10px] font-medium tracking-widest text-white/40 uppercase">
           Signed in as
         </p>
-        <p className="mt-1 text-sm font-medium text-white">Factory Admin</p>
+        <p className="mt-1 text-sm font-medium text-white">{ROLE_LABELS[role]}</p>
         <span className="mt-2 inline-flex items-center rounded-full bg-emerald-accent/30 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-light uppercase">
-          factory_admin
+          {role}
         </span>
       </div>
 

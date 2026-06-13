@@ -1,4 +1,6 @@
-export const INITIAL_VOLUMES = [
+import { buildRawStockFromPurchases } from '../utils/inventoryHelpers'
+
+export const INITIAL_FINISHED_GOODS_STOCK = [
   {
     id: 'vol-1',
     name: 'Volume 1 (Luxury Lawn)',
@@ -18,53 +20,72 @@ export const INITIAL_VOLUMES = [
   },
 ]
 
-export const INITIAL_SUPPLIES = [
+export const INITIAL_PURCHASES = [
   {
-    id: 'sup-1',
-    name: 'Cotton Fabric',
+    id: 'pur-1',
+    materialType: 'Premium Lawn',
     vendor: 'Al-Fatah Textiles',
-    type: 'Fabric',
-    volumeId: 'vol-1',
     quantity: 2000,
     unit: 'meters',
-    unitPrice: 2.5,
+    unitPrice: 250,
+    totalPrice: 500000,
+    date: '2026-05-15',
+    batchSerial: 'RS-BATCH-20260515-A1B2',
+    status: 'complete',
   },
   {
-    id: 'sup-2',
-    name: 'Embroidered Borders',
+    id: 'pur-2',
+    materialType: 'Embroidered Borders',
     vendor: 'Heritage Embroidery Co.',
-    type: 'Embroidery',
-    volumeId: 'vol-1',
     quantity: 1200,
-    unit: 'yards',
-    unitPrice: 2,
+    unit: 'meters',
+    unitPrice: 200,
+    totalPrice: 240000,
+    date: '2026-05-18',
+    batchSerial: 'RS-BATCH-20260518-C3D4',
+    status: 'complete',
   },
   {
-    id: 'sup-3',
-    name: 'Chiffon Dupattas',
+    id: 'pur-3',
+    materialType: 'Chiffon',
     vendor: 'Silk Route Suppliers',
-    type: 'Dupatta',
-    volumeId: 'vol-2',
     quantity: 800,
-    unit: 'pieces',
-    unitPrice: 4.5,
+    unit: 'meters',
+    unitPrice: 450,
+    totalPrice: 360000,
+    date: '2026-05-20',
+    batchSerial: 'RS-BATCH-20260520-E5F6',
+    status: 'complete',
   },
   {
-    id: 'sup-4',
-    name: 'Laces',
+    id: 'pur-4',
+    materialType: 'Laces',
     vendor: 'Royal Trim House',
-    type: 'Trim',
-    volumeId: 'vol-2',
     quantity: 500,
-    unit: 'yards',
-    unitPrice: 3.2,
+    unit: 'meters',
+    unitPrice: 320,
+    totalPrice: 160000,
+    date: '2026-05-22',
+    batchSerial: 'RS-BATCH-20260522-G7H8',
+    status: 'complete',
+  },
+  {
+    id: 'pur-5',
+    materialType: 'Silk',
+    vendor: 'Lahore Silk Mills',
+    quantity: 600,
+    unit: 'meters',
+    unitPrice: 800,
+    totalPrice: 480000,
+    date: '2026-06-10',
+    batchSerial: 'RS-BATCH-20260610-I9J0',
+    status: 'in_progress',
   },
 ]
 
-export const INITIAL_SALES = [
-  { id: 'sale-1', orderId: 'RS-2024-0847', customer: 'Boutique Elegance', design: 'J1 — Crimson Red', volume: 'Volume 1 (Luxury Lawn)', quantity: 48, amount: 14400, status: 'completed', date: '2024-05-28' },
-  { id: 'sale-2', orderId: 'RS-2024-0851', customer: 'Threads & Co.', design: 'J2 — Emerald Green', volume: 'Volume 1 (Luxury Lawn)', quantity: 36, amount: 10800, status: 'completed', date: '2024-05-30' },
-  { id: 'sale-3', orderId: 'RS-2024-0856', customer: 'Lahore Fashion House', design: 'R2 — Midnight Black', volume: 'Volume 2 (Chiffon Edit)', quantity: 60, amount: 21000, status: 'pending', date: '2024-06-02' },
-  { id: 'sale-4', orderId: 'RS-2024-0860', customer: 'Karachi Couture', design: 'J3 — Royal Ivory', volume: 'Volume 1 (Luxury Lawn)', quantity: 24, amount: 9600, status: 'processing', date: '2024-06-04' },
-  { id: 'sale-5', orderId: 'RS-2024-0863', customer: 'Islamabad Styles', design: 'R1 — Pastel Pink', volume: 'Volume 2 (Chiffon Edit)', quantity: 30, amount: 10500, status: 'completed', date: '2024-06-05' },
-]
+export const INITIAL_PRODUCTION = []
+
+export const INITIAL_RAW_MATERIAL_STOCK = buildRawStockFromPurchases(INITIAL_PURCHASES)
+
+export const INITIAL_VOLUMES = INITIAL_FINISHED_GOODS_STOCK
+export const INITIAL_SUPPLIES = INITIAL_PURCHASES

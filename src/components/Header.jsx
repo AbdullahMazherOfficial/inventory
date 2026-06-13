@@ -1,13 +1,16 @@
-import { Bell, Search, Calendar } from 'lucide-react'
+import { Bell, Search, Calendar, User } from 'lucide-react'
+import { useInventory } from '../context/InventoryContext'
+import { ROLE_LABELS } from '../utils/inventoryHelpers'
 
 const PAGE_TITLES = {
   dashboard: { title: 'Dashboard Overview', subtitle: 'Real-time inventory insights at a glance' },
   stock: { title: 'Stock Management', subtitle: 'Manage volumes, designs, colors & fabric types' },
-  purchases: { title: 'Purchases & Supplies', subtitle: 'Track raw materials and supply chain costs' },
-  sales: { title: 'Sales Tracker', subtitle: 'Monitor orders and revenue performance' },
+  purchases: { title: 'Purchases', subtitle: 'Track raw materials and supply chain costs' },
+  reports: { title: 'Reports', subtitle: 'Export volume stock or purchase history' },
 }
 
 export default function Header({ activePage }) {
+  const { role, setRole } = useInventory()
   const { title, subtitle } = PAGE_TITLES[activePage] || PAGE_TITLES.dashboard
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -15,6 +18,13 @@ export default function Header({ activePage }) {
     month: 'long',
     day: 'numeric',
   })
+
+  const initials = ROLE_LABELS[role]
+    ?.split(' ')
+    .map((word) => word[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
 
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface/80 px-8 py-5 backdrop-blur-md">
@@ -39,6 +49,18 @@ export default function Header({ activePage }) {
             />
           </div>
 
+          <div className="relative hidden md:block">
+            <User className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted" strokeWidth={1.5} />
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="appearance-none rounded-xl border border-border bg-cream py-2 pr-8 pl-10 text-sm text-charcoal transition-colors focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
+            >
+              <option value="supply_admin">Purchase Incharge</option>
+              <option value="factory_admin">Factory Admin</option>
+            </select>
+          </div>
+
           <button
             type="button"
             className="relative rounded-xl border border-border bg-cream p-2.5 text-muted transition-colors hover:border-emerald-accent/30 hover:text-emerald-accent"
@@ -51,10 +73,10 @@ export default function Header({ activePage }) {
 
           <div className="flex items-center gap-3 rounded-xl border border-border bg-cream px-3 py-2">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-indigo-accent to-charcoal text-xs font-semibold text-white">
-              FA
+              {initials}
             </div>
             <div className="hidden sm:block">
-              <p className="text-sm font-medium text-charcoal">Factory Admin</p>
+              <p className="text-sm font-medium text-charcoal">{ROLE_LABELS[role]}</p>
               <p className="text-[11px] text-muted">Ramsha Factory</p>
             </div>
           </div>

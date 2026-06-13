@@ -9,10 +9,10 @@ export default function Login({ onLogin }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (role === 'factory_admin' && password === 'admin') {
-      onLogin()
+    if (password === 'admin' && (role === 'factory_admin' || role === 'supply_admin')) {
+      onLogin(role)
     } else {
-      setError('Invalid credentials. Use role: factory_admin, password: admin')
+      setError('Invalid credentials. Use password: admin with a valid demo role.')
     }
   }
 
@@ -91,6 +91,7 @@ export default function Login({ onLogin }) {
                     className="w-full appearance-none rounded-xl border border-border bg-cream py-3 pr-4 pl-10 text-sm text-charcoal transition-colors focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
                   >
                     <option value="factory_admin">Factory Admin</option>
+                    <option value="supply_admin">Purchase Incharge</option>
                   </select>
                 </div>
               </div>
@@ -138,7 +139,8 @@ export default function Login({ onLogin }) {
             </form>
 
             <p className="mt-6 text-center text-xs text-muted">
-              Demo credentials: <span className="font-medium text-charcoal">factory_admin</span> /{' '}
+              Demo credentials: <span className="font-medium text-charcoal">factory_admin</span> or{' '}
+              <span className="font-medium text-charcoal">supply_admin</span> /{' '}
               <span className="font-medium text-charcoal">admin</span>
             </p>
           </div>

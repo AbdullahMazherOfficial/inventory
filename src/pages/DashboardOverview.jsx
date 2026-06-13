@@ -7,6 +7,8 @@ import {
   TrendingUp,
   ArrowUpRight,
 } from 'lucide-react'
+import { useInventory } from '../context/InventoryContext'
+import { formatPKR } from '../utils/inventoryHelpers'
 
 function MetricCard({ icon: Icon, label, value, change, accent }) {
   const accentClasses = {
@@ -35,7 +37,7 @@ function MetricCard({ icon: Icon, label, value, change, accent }) {
   )
 }
 
-function StockAlertBar({ code, color, units, maxUnits, status }) {
+function StockAlertBar({ code, color, volumeName, units, maxUnits, status }) {
   const percentage = Math.min((units / maxUnits) * 100, 100)
   const isLow = status === 'low'
 
@@ -45,6 +47,7 @@ function StockAlertBar({ code, color, units, maxUnits, status }) {
         <div className="flex items-center gap-2">
           <span className="font-medium text-charcoal">{code}</span>
           <span className="text-muted">— {color}</span>
+          <span className="text-[10px] text-muted">({volumeName})</span>
           {isLow && (
             <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
               <AlertTriangle className="h-3 w-3" />
@@ -68,38 +71,42 @@ function StockAlertBar({ code, color, units, maxUnits, status }) {
   )
 }
 
-export default function DashboardOverview({ volumes, supplies, sales }) {
-  const totalVolumes = volumes.length
-  const totalPieces = volumes.reduce(
-    (sum, vol) => sum + vol.designs.reduce((s, d) => s + d.units, 0),
+export default function DashboardOverview() {
+  const {
+    finishedGoodsStock,
+    purchases,
+    rawMaterialStock,
+    production,
+  } = useInventory()
+
+  const totalVolumes = finishedGoodsStock.length
+  const totalFabricMeters = Object.values(rawMaterialStock).reduce((sum, balance) => sum + balance, 0)
+  const purchaseSpend = purchases.reduce((sum, purchase) => sum + purchase.totalPrice, 0)
+  const pendingPurchases = purchases.filter((purchase) => purchase.status === 'in_progress').length
+  const totalFinishedPieces = finishedGoodsStock.reduce(
+    (sum, volume) => sum + volume.designs.reduce((designSum, design) => designSum + design.units, 0),
     0
   )
-  const monthlyExpense = supplies.reduce((sum, s) => sum + s.quantity * s.unitPrice, 0)
-  const pendingSupplies = supplies.filter((s) => s.quantity < 1000).length
-  const pendingSales = sales.filter((s) => s.status === 'pending').length
 
-  const topDesigns = volumes
-    .flatMap((vol) =>
-      vol.designs.map((d) => ({
-        ...d,
-        volumeName: vol.name,
+  const topDesigns = finishedGoodsStock
+    .flatMap((volume) =>
+      volume.designs.map((design) => ({
+        ...design,
+        volumeName: volume.name,
       }))
     )
     .sort((a, b) => b.units - a.units)
     .slice(0, 4)
 
-  const stockAlerts = volumes
-    .flatMap((vol) => vol.designs)
-    .filter((d) => d.units < 200)
-    .map((d) => ({ ...d, status: 'low' }))
+  const allVolumeStock = finishedGoodsStock.flatMap((volume) =>
+    volume.designs.map((design) => ({
+      ...design,
+      volumeName: volume.name,
+      status: design.units < 200 ? 'low' : 'ok',
+    }))
+  )
 
-  const regularStock = volumes
-    .flatMap((vol) => vol.designs)
-    .filter((d) => d.units >= 200)
-    .slice(0, 2)
-    .map((d) => ({ ...d, status: 'ok' }))
-
-  const displayStock = [...stockAlerts, ...regularStock].slice(0, 5)
+  const maxUnits = Math.max(...allVolumeStock.map((item) => item.units), 500)
 
   return (
     <div className="space-y-8 p-8">
@@ -108,27 +115,28 @@ export default function DashboardOverview({ volumes, supplies, sales }) {
           icon={Layers}
           label="Total Volumes Active"
           value={totalVolumes}
-          change="+2 this quarter"
+          change={`${production.length} production runs`}
           accent="emerald"
         />
         <MetricCard
           icon={Package}
-          label="Total Pieces in Stock"
-          value={totalPieces.toLocaleString()}
-          change="+12.5%"
+          label="Total Fabric in Stock"
+          value={`${totalFabricMeters.toLocaleString()} m`}
+          change={`${Object.keys(rawMaterialStock).length} fabric types`}
           accent="indigo"
         />
         <MetricCard
           icon={DollarSign}
-          label="Monthly Material Expense"
-          value={`$${monthlyExpense.toLocaleString()}`}
-          change="+8.2%"
+          label="Purchase Spend"
+          value={formatPKR(purchaseSpend)}
+          change={`${purchases.length} orders`}
           accent="gold"
         />
         <MetricCard
           icon={Truck}
-          label="Pending Supplies"
-          value={pendingSupplies + pendingSales}
+          label="Alerts & Pending"
+          value={pendingPurchases}
+          change={pendingPurchases === 1 ? 'purchase in progress' : 'purchases in progress'}
           accent="charcoal"
         />
       </div>
@@ -138,23 +146,28 @@ export default function DashboardOverview({ volumes, supplies, sales }) {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-charcoal">Stock Levels</h3>
-              <p className="text-sm text-muted">Inventory health by design code</p>
+              <p className="text-sm text-muted">All volume design stock levels</p>
             </div>
             <span className="rounded-full bg-cream px-3 py-1 text-xs font-medium text-muted">
               Live
             </span>
           </div>
-          <div className="space-y-5">
-            {displayStock.map((item) => (
-              <StockAlertBar
-                key={item.id}
-                code={item.code}
-                color={item.color}
-                units={item.units}
-                maxUnits={500}
-                status={item.status}
-              />
-            ))}
+          <div className="max-h-[420px] space-y-5 overflow-y-auto pr-1">
+            {allVolumeStock.length === 0 ? (
+              <p className="text-sm text-muted">No designs in stock yet.</p>
+            ) : (
+              allVolumeStock.map((item) => (
+                <StockAlertBar
+                  key={item.id}
+                  code={item.code}
+                  color={item.color}
+                  volumeName={item.volumeName}
+                  units={item.units}
+                  maxUnits={maxUnits}
+                  status={item.status}
+                />
+              ))
+            )}
           </div>
         </div>
 
@@ -194,22 +207,20 @@ export default function DashboardOverview({ volumes, supplies, sales }) {
       <div className="rounded-2xl border border-border bg-gradient-to-r from-charcoal to-indigo-accent p-6 text-white shadow-lg">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-lg font-semibold">Ramsha Factory — Production Summary</h3>
+            <h3 className="text-lg font-semibold">Ramsha Factory — Stock Summary</h3>
             <p className="mt-1 text-sm text-white/60">
-              {totalVolumes} active volumes · {totalPieces.toLocaleString()} pieces in stock ·{' '}
-              {sales.filter((s) => s.status === 'completed').length} completed sales this month
+              {totalVolumes} active volumes · {totalFabricMeters.toLocaleString()} m fabric in stock ·{' '}
+              {totalFinishedPieces.toLocaleString()} finished pieces produced
             </p>
           </div>
           <div className="flex gap-6">
             <div className="text-center">
-              <p className="text-2xl font-bold text-gold-light">
-                ${sales.reduce((s, sale) => s + sale.amount, 0).toLocaleString()}
-              </p>
-              <p className="text-xs text-white/50">Total Revenue</p>
+              <p className="text-2xl font-bold text-gold-light">{formatPKR(purchaseSpend)}</p>
+              <p className="text-xs text-white/50">Total Purchase Spend</p>
             </div>
             <div className="text-center">
-              <p className="text-2xl font-bold text-emerald-light">{pendingSales}</p>
-              <p className="text-xs text-white/50">Pending Orders</p>
+              <p className="text-2xl font-bold text-emerald-light">{pendingPurchases}</p>
+              <p className="text-xs text-white/50">Pending Purchases</p>
             </div>
           </div>
         </div>
