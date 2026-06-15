@@ -1,22 +1,81 @@
-import { buildRawStockFromPurchases } from '../utils/inventoryHelpers'
+const SEED_DESIGNS_VOL1 = [
+  {
+    id: 'd-1',
+    designCode: '6211',
+    colorCode: 'J1',
+    processStatus: 'embroidery',
+    units: 1500,
+    items: [
+      { id: 'item-1', name: 'Kamiz', clothType: 'Premium Lawn', metersPerUnit: 2.5 },
+      { id: 'item-2', name: 'Shalwar', clothType: 'Premium Lawn', metersPerUnit: 3 },
+      { id: 'item-3', name: 'Dupatta', clothType: 'Chiffon', metersPerUnit: 2.2 },
+    ],
+    createdAt: '2026-05-01',
+  },
+  {
+    id: 'd-2',
+    designCode: '6212',
+    colorCode: 'J2',
+    processStatus: 'painting',
+    units: 800,
+    items: [
+      { id: 'item-4', name: 'Kamiz', clothType: 'Premium Lawn', metersPerUnit: 2.5 },
+      { id: 'item-5', name: 'Shalwar', clothType: 'Premium Lawn', metersPerUnit: 1.8 },
+    ],
+    createdAt: '2026-05-03',
+  },
+  {
+    id: 'd-3',
+    designCode: '6213',
+    colorCode: 'J3',
+    processStatus: 'dyeing',
+    units: 500,
+    items: [
+      { id: 'item-6', name: 'Kamiz', clothType: 'Premium Lawn', metersPerUnit: 2.5 },
+      { id: 'item-7', name: 'Dupatta', clothType: 'Chiffon', metersPerUnit: 2.0 },
+    ],
+    createdAt: '2026-05-05',
+  },
+]
+
+const SEED_DESIGNS_VOL2 = [
+  {
+    id: 'd-4',
+    designCode: '7240',
+    colorCode: 'R1',
+    processStatus: 'pending',
+    units: 600,
+    items: [
+      { id: 'item-8', name: 'Kamiz', clothType: 'Chiffon', metersPerUnit: 3.0 },
+      { id: 'item-9', name: 'Shalwar', clothType: 'Chiffon', metersPerUnit: 2.0 },
+    ],
+    createdAt: '2026-05-08',
+  },
+  {
+    id: 'd-5',
+    designCode: '7241',
+    colorCode: 'R2',
+    processStatus: 'embroidery',
+    units: 400,
+    items: [
+      { id: 'item-10', name: 'Kamiz', clothType: 'Chiffon', metersPerUnit: 3.0 },
+      { id: 'item-11', name: 'Shalwar', clothType: 'Chiffon', metersPerUnit: 2.0 },
+      { id: 'item-12', name: 'Dupatta', clothType: 'Laces', metersPerUnit: 1.5 },
+    ],
+    createdAt: '2026-05-10',
+  },
+]
 
 export const INITIAL_FINISHED_GOODS_STOCK = [
   {
     id: 'vol-1',
     name: 'Volume 1 (Luxury Lawn)',
-    designs: [
-      { id: 'd-1', code: 'J1', color: 'Crimson Red', fabric: 'Premium Lawn', units: 450 },
-      { id: 'd-2', code: 'J2', color: 'Emerald Green', fabric: 'Premium Lawn', units: 300 },
-      { id: 'd-3', code: 'J3', color: 'Royal Ivory', fabric: 'Premium Lawn', units: 150 },
-    ],
+    designs: SEED_DESIGNS_VOL1,
   },
   {
     id: 'vol-2',
     name: 'Volume 2 (Chiffon Edit)',
-    designs: [
-      { id: 'd-4', code: 'R1', color: 'Pastel Pink', fabric: 'Chiffon', units: 200 },
-      { id: 'd-5', code: 'R2', color: 'Midnight Black', fabric: 'Chiffon', units: 500 },
-    ],
+    designs: SEED_DESIGNS_VOL2,
   },
 ]
 
@@ -84,8 +143,6 @@ export const INITIAL_PURCHASES = [
 ]
 
 export const INITIAL_PRODUCTION = []
-
-export const INITIAL_RAW_MATERIAL_STOCK = buildRawStockFromPurchases(INITIAL_PURCHASES)
 
 export const INITIAL_VOLUMES = INITIAL_FINISHED_GOODS_STOCK
 export const INITIAL_SUPPLIES = INITIAL_PURCHASES

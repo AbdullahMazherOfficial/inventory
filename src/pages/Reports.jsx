@@ -5,7 +5,12 @@ import {
   canExportVolumesReport,
   exportToCsv,
   formatPKR,
+  getDesignLabel,
+  getColorLabel,
+  aggregateConsumptionByCloth,
+  getItemConsumption,
   PURCHASE_STATUS_LABELS,
+  PROCESS_STATUS_OPTIONS,
 } from '../utils/inventoryHelpers'
 
 export default function Reports() {
@@ -16,19 +21,24 @@ export default function Reports() {
 
   const handleExportVolumes = () => {
     const rows = finishedGoodsStock.flatMap((volume) =>
-      volume.designs.map((design) => [
-        volume.name,
-        design.code,
-        design.color,
-        design.fabric,
-        design.metersPerUnit || '',
-        design.units,
-      ])
+      volume.designs.flatMap((design) =>
+        (design.items || []).map((item) => [
+          volume.name,
+          getDesignLabel(design),
+          getColorLabel(design),
+          design.units || 0,
+          PROCESS_STATUS_OPTIONS.find((option) => option.value === design.processStatus)?.label || design.processStatus,
+          item.name,
+          item.clothType,
+          item.metersPerUnit,
+          getItemConsumption(item, design.units || 0),
+        ])
+      )
     )
 
     exportToCsv(
       'volume-stock-report.csv',
-      ['Volume', 'Design Code', 'Color', 'Fabric', 'Meters/Unit', 'Units in Stock'],
+      ['Volume', 'Design Code', 'Color Code', 'Units', 'Process Status', 'Item', 'Cloth Type', 'Meters/Unit', 'Total Meters'],
       rows
     )
   }
@@ -52,8 +62,9 @@ export default function Reports() {
   }
 
   if (canExportVolumes) {
-    const totalUnits = finishedGoodsStock.reduce(
-      (sum, volume) => sum + volume.designs.reduce((designSum, design) => designSum + design.units, 0),
+    const totalItems = finishedGoodsStock.reduce(
+      (sum, volume) =>
+        sum + volume.designs.reduce((designSum, design) => designSum + (design.items?.length || 0), 0),
       0
     )
 
@@ -63,7 +74,7 @@ export default function Reports() {
           <div>
             <h3 className="text-base font-semibold text-charcoal">Volume Stock Report</h3>
             <p className="text-sm text-muted">
-              All volumes, design codes, and finished piece balances
+              All volumes, design codes, items, and process status
             </p>
           </div>
           <button
@@ -88,8 +99,8 @@ export default function Reports() {
             </p>
           </div>
           <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
-            <p className="text-xs font-medium tracking-wide text-muted uppercase">Finished Pieces</p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-accent">{totalUnits.toLocaleString()}</p>
+            <p className="text-xs font-medium tracking-wide text-muted uppercase">Total Items</p>
+            <p className="mt-2 text-3xl font-semibold text-emerald-accent">{totalItems}</p>
           </div>
         </div>
 
@@ -104,29 +115,42 @@ export default function Reports() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border bg-cream/50">
-                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Code</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Design</th>
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Color</th>
-                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Fabric</th>
-                      <th className="px-6 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">m/Unit</th>
                       <th className="px-6 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Units</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Status</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Items</th>
+                      <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Fabric Reserve</th>
                     </tr>
                   </thead>
                   <tbody>
                     {volume.designs.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-6 py-6 text-center text-sm text-muted">No designs in this volume.</td>
+                        <td colSpan={6} className="px-6 py-6 text-center text-sm text-muted">No designs in this volume.</td>
                       </tr>
                     ) : (
                       volume.designs.map((design) => (
                         <tr key={design.id} className="border-b border-border/50 last:border-0 hover:bg-cream/30">
-                          <td className="px-6 py-4 text-sm font-medium text-charcoal">{design.code}</td>
-                          <td className="px-6 py-4 text-sm text-charcoal">{design.color}</td>
-                          <td className="px-6 py-4 text-sm text-muted">{design.fabric}</td>
-                          <td className="px-6 py-4 text-right text-sm text-muted">
-                            {design.metersPerUnit ? `${design.metersPerUnit} m` : '—'}
-                          </td>
+                          <td className="px-6 py-4 text-sm font-medium text-charcoal">{getDesignLabel(design)}</td>
+                          <td className="px-6 py-4 text-sm text-charcoal">{getColorLabel(design)}</td>
                           <td className="px-6 py-4 text-right text-sm font-semibold text-charcoal">
-                            {design.units.toLocaleString()}
+                            {(design.units || 0).toLocaleString()}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted capitalize">{design.processStatus || 'pending'}</td>
+                          <td className="px-6 py-4 text-sm text-muted">
+                            {(design.items || []).map((item) => item.name).join(', ') || '—'}
+                          </td>
+                          <td className="px-6 py-4">
+                            {Object.entries(
+                              aggregateConsumptionByCloth(design.items || [], design.units || 0)
+                            ).map(([clothType, meters]) => (
+                              <span
+                                key={clothType}
+                                className="mr-2 inline-flex rounded-md border border-border bg-cream/60 px-2 py-0.5 text-[10px] font-medium text-charcoal"
+                              >
+                                {clothType}: {meters.toLocaleString()} m
+                              </span>
+                            ))}
                           </td>
                         </tr>
                       ))

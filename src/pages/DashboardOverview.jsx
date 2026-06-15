@@ -3,12 +3,18 @@ import {
   Layers,
   DollarSign,
   Truck,
-  AlertTriangle,
   TrendingUp,
   ArrowUpRight,
 } from 'lucide-react'
 import { useInventory } from '../context/InventoryContext'
-import { formatPKR } from '../utils/inventoryHelpers'
+import {
+  formatPKR,
+  getDesignLabel,
+  getColorLabel,
+  getDesignTotalConsumption,
+  PROCESS_STATUS_OPTIONS,
+  PROCESS_STATUS_STYLES,
+} from '../utils/inventoryHelpers'
 
 function MetricCard({ icon: Icon, label, value, change, accent }) {
   const accentClasses = {
@@ -37,33 +43,29 @@ function MetricCard({ icon: Icon, label, value, change, accent }) {
   )
 }
 
-function StockAlertBar({ code, color, volumeName, units, maxUnits, status }) {
-  const percentage = Math.min((units / maxUnits) * 100, 100)
-  const isLow = status === 'low'
+function DesignStockBar({ design, volumeName, maxMeters }) {
+  const meters = getDesignTotalConsumption(design.items || [], design.units || 0)
+  const percentage = Math.min((meters / maxMeters) * 100, 100)
+  const status = design.processStatus || 'pending'
+  const statusLabel = PROCESS_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
 
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-sm">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-charcoal">{code}</span>
-          <span className="text-muted">— {color}</span>
+          <span className="font-medium text-charcoal">{getDesignLabel(design)}</span>
+          <span className="text-muted">· {getColorLabel(design)}</span>
           <span className="text-[10px] text-muted">({volumeName})</span>
-          {isLow && (
-            <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600">
-              <AlertTriangle className="h-3 w-3" />
-              Low Stock
-            </span>
-          )}
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PROCESS_STATUS_STYLES[status]}`}>
+            {statusLabel}
+          </span>
         </div>
-        <span className="font-medium text-charcoal">{units} pcs</span>
+        <span className="font-medium text-charcoal">{meters.toLocaleString()} m</span>
+        <span className="text-[10px] text-muted">{(design.units || 0).toLocaleString()} units</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-cream">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            isLow
-              ? 'bg-gradient-to-r from-amber-400 to-amber-500'
-              : 'bg-gradient-to-r from-emerald-accent to-emerald-light'
-          }`}
+          className="h-full rounded-full bg-gradient-to-r from-emerald-accent to-emerald-light transition-all duration-500"
           style={{ width: `${percentage}%` }}
         />
       </div>
@@ -76,37 +78,36 @@ export default function DashboardOverview() {
     finishedGoodsStock,
     purchases,
     rawMaterialStock,
-    production,
   } = useInventory()
 
   const totalVolumes = finishedGoodsStock.length
   const totalFabricMeters = Object.values(rawMaterialStock).reduce((sum, balance) => sum + balance, 0)
   const purchaseSpend = purchases.reduce((sum, purchase) => sum + purchase.totalPrice, 0)
   const pendingPurchases = purchases.filter((purchase) => purchase.status === 'in_progress').length
-  const totalFinishedPieces = finishedGoodsStock.reduce(
-    (sum, volume) => sum + volume.designs.reduce((designSum, design) => designSum + design.units, 0),
-    0
-  )
+  const totalDesigns = finishedGoodsStock.reduce((sum, volume) => sum + volume.designs.length, 0)
 
   const topDesigns = finishedGoodsStock
     .flatMap((volume) =>
       volume.designs.map((design) => ({
         ...design,
         volumeName: volume.name,
+        totalMeters: getDesignTotalConsumption(design.items || [], design.units || 0),
       }))
     )
-    .sort((a, b) => b.units - a.units)
+    .sort((a, b) => b.totalMeters - a.totalMeters)
     .slice(0, 4)
 
   const allVolumeStock = finishedGoodsStock.flatMap((volume) =>
     volume.designs.map((design) => ({
       ...design,
       volumeName: volume.name,
-      status: design.units < 200 ? 'low' : 'ok',
     }))
   )
 
-  const maxUnits = Math.max(...allVolumeStock.map((item) => item.units), 500)
+  const maxMeters = Math.max(
+    ...allVolumeStock.map((design) => getDesignTotalConsumption(design.items || [], design.units || 0)),
+    10
+  )
 
   return (
     <div className="space-y-8 p-8">
@@ -115,7 +116,7 @@ export default function DashboardOverview() {
           icon={Layers}
           label="Total Volumes Active"
           value={totalVolumes}
-          change={`${production.length} production runs`}
+          change={`${totalDesigns} designs`}
           accent="emerald"
         />
         <MetricCard
@@ -156,15 +157,12 @@ export default function DashboardOverview() {
             {allVolumeStock.length === 0 ? (
               <p className="text-sm text-muted">No designs in stock yet.</p>
             ) : (
-              allVolumeStock.map((item) => (
-                <StockAlertBar
-                  key={item.id}
-                  code={item.code}
-                  color={item.color}
-                  volumeName={item.volumeName}
-                  units={item.units}
-                  maxUnits={maxUnits}
-                  status={item.status}
+              allVolumeStock.map((design) => (
+                <DesignStockBar
+                  key={design.id}
+                  design={design}
+                  volumeName={design.volumeName}
+                  maxMeters={maxMeters}
                 />
               ))
             )}
@@ -175,7 +173,7 @@ export default function DashboardOverview() {
           <div className="mb-6 flex items-center justify-between">
             <div>
               <h3 className="text-base font-semibold text-charcoal">Top Selling Designs</h3>
-              <p className="text-sm text-muted">Highest volume design codes</p>
+              <p className="text-sm text-muted">Highest fabric consumption design codes</p>
             </div>
             <TrendingUp className="h-5 w-5 text-emerald-accent" strokeWidth={1.5} />
           </div>
@@ -190,13 +188,13 @@ export default function DashboardOverview() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-charcoal">
-                    {design.code} — {design.color}
+                    {getDesignLabel(design)} · {getColorLabel(design)}
                   </p>
                   <p className="text-xs text-muted">{design.volumeName}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-charcoal">{design.units}</p>
-                  <p className="text-[10px] text-muted">units</p>
+                  <p className="text-sm font-semibold text-charcoal">{design.totalMeters} m</p>
+                  <p className="text-[10px] text-muted">reserved</p>
                 </div>
               </div>
             ))}
@@ -210,7 +208,7 @@ export default function DashboardOverview() {
             <h3 className="text-lg font-semibold">Ramsha Factory — Stock Summary</h3>
             <p className="mt-1 text-sm text-white/60">
               {totalVolumes} active volumes · {totalFabricMeters.toLocaleString()} m fabric in stock ·{' '}
-              {totalFinishedPieces.toLocaleString()} finished pieces produced
+              {totalDesigns} designs in pipeline
             </p>
           </div>
           <div className="flex gap-6">
