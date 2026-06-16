@@ -5,7 +5,12 @@ import {
   FileText,
   LogOut,
   Gem,
+  Droplets,
+  Cog,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useInventory } from '../context/InventoryContext'
 import { ROLE_LABELS } from '../utils/inventoryHelpers'
 
@@ -16,8 +21,12 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: FileText },
 ]
 
+const PROCESS_ITEMS = [{ id: 'process-dyeing', label: 'Dyeing', icon: Droplets }]
+
 export default function Sidebar({ activePage, onNavigate, onLogout }) {
   const { role } = useInventory()
+  const isProcessActive = activePage.startsWith('process-')
+  const [processOpen, setProcessOpen] = useState(isProcessActive)
 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col bg-charcoal text-white shadow-2xl">
@@ -27,9 +36,7 @@ export default function Sidebar({ activePage, onNavigate, onLogout }) {
             <Gem className="h-5 w-5 text-white" strokeWidth={1.5} />
           </div>
           <div>
-            <h1 className="text-sm font-semibold tracking-wide text-white">
-              Ramsha Inventory
-            </h1>
+            <h1 className="text-sm font-semibold tracking-wide text-white">Ramsha Inventory</h1>
             <p className="text-[11px] font-light tracking-widest text-white/50 uppercase">
               Management System
             </p>
@@ -38,16 +45,14 @@ export default function Sidebar({ activePage, onNavigate, onLogout }) {
       </div>
 
       <div className="mx-4 mt-6 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-        <p className="text-[10px] font-medium tracking-widest text-white/40 uppercase">
-          Signed in as
-        </p>
+        <p className="text-[10px] font-medium tracking-widest text-white/40 uppercase">Signed in as</p>
         <p className="mt-1 text-sm font-medium text-white">{ROLE_LABELS[role]}</p>
         <span className="mt-2 inline-flex items-center rounded-full bg-emerald-accent/30 px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-emerald-light uppercase">
           {role}
         </span>
       </div>
 
-      <nav className="mt-6 flex-1 space-y-1 px-3">
+      <nav className="mt-6 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
         {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
           const isActive = activePage === id
           return (
@@ -69,6 +74,53 @@ export default function Sidebar({ activePage, onNavigate, onLogout }) {
             </button>
           )
         })}
+
+        <div className="pt-3">
+          <button
+            type="button"
+            onClick={() => setProcessOpen((open) => !open)}
+            className={`group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200 ${
+              isProcessActive ? 'bg-white/10 text-white' : 'text-white/60 hover:bg-white/5 hover:text-white'
+            }`}
+          >
+            <Cog
+              className={`h-[18px] w-[18px] ${isProcessActive ? 'text-indigo-300' : 'text-white/50 group-hover:text-white/80'}`}
+              strokeWidth={1.5}
+            />
+            <span className="flex-1 text-left">Process</span>
+            {processOpen ? (
+              <ChevronDown className="h-4 w-4 text-white/40" />
+            ) : (
+              <ChevronRight className="h-4 w-4 text-white/40" />
+            )}
+          </button>
+
+          {processOpen && (
+            <div className="mt-1 ml-4 space-y-1 border-l border-white/10 pl-3">
+              {PROCESS_ITEMS.map(({ id, label, icon: Icon }) => {
+                const isActive = activePage === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => onNavigate(id)}
+                    className={`group flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-indigo-500/80 to-indigo-600 text-white shadow-md'
+                        : 'text-white/50 hover:bg-white/5 hover:text-white/90'
+                    }`}
+                  >
+                    <Icon
+                      className={`h-4 w-4 ${isActive ? 'text-white' : 'text-white/40 group-hover:text-white/70'}`}
+                      strokeWidth={1.5}
+                    />
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </nav>
 
       <div className="border-t border-white/10 p-4">

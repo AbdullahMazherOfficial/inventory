@@ -7,6 +7,10 @@ const PAGE_TITLES = {
   stock: { title: 'Stock Management', subtitle: 'Manage volumes, designs, colors & fabric types' },
   purchases: { title: 'Purchases', subtitle: 'Track raw materials and supply chain costs' },
   reports: { title: 'Reports', subtitle: 'Export volume stock or purchase history' },
+  'process-dyeing': {
+    title: 'Process · Dyeing',
+    subtitle: 'Send volumes to dyeing, receive lots, and track wastage vs planned units',
+  },
 }
 
 export default function Header({ activePage }) {

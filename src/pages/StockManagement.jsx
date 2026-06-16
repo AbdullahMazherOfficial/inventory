@@ -23,8 +23,10 @@ import {
   getDesignLabel,
   getColorLabel,
   formatConsumptionFormula,
-  PROCESS_STATUS_OPTIONS,
-  PROCESS_STATUS_STYLES,
+  getDesignStatus,
+  isDesignInDyeing,
+  DESIGN_STATUS_OPTIONS,
+  DESIGN_STATUS_STYLES,
 } from '../utils/inventoryHelpers'
 
 const EMPTY_ITEM_DRAFT = { name: '', clothType: '', metersPerUnit: 0 }
@@ -66,7 +68,6 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
   const [designCode, setDesignCode] = useState(design?.designCode || design?.code || '')
   const [colorCode, setColorCode] = useState(design?.colorCode || design?.color || '')
   const [units, setUnits] = useState(design?.units || 0)
-  const [processStatus, setProcessStatus] = useState(design?.processStatus || 'pending')
   const [savedItems, setSavedItems] = useState(
     design?.items?.map((item) => ({ ...item })) || []
   )
@@ -135,7 +136,6 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
       designCode,
       colorCode,
       units,
-      processStatus,
       items: savedItems,
     })
 
@@ -175,7 +175,7 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
         <form onSubmit={handleSubmit} className="space-y-6">
           <section className="rounded-2xl border border-border bg-cream/30 p-4">
             <p className="mb-4 text-xs font-semibold tracking-wide text-muted uppercase">Step 1 · Design Details</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Design Code</label>
                 <input
@@ -209,20 +209,14 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                 />
                 <p className="mt-1 text-[10px] text-muted">How many sets to produce</p>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Process Status</label>
-                <select
-                  value={processStatus}
-                  onChange={(e) => setProcessStatus(e.target.value)}
-                  className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm focus:border-emerald-accent focus:outline-none"
-                >
-                  {PROCESS_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {isEditing && (
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Status</label>
+                  <div className="flex h-[42px] items-center rounded-xl border border-border bg-cream/50 px-4">
+                    <DesignStatusBadge design={design} />
+                  </div>
+                </div>
+              )}
             </div>
           </section>
 
@@ -441,10 +435,15 @@ function VolumeModal({ onSave, onClose }) {
   )
 }
 
-function ProcessStatusBadge({ status }) {
-  const label = PROCESS_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
+function DesignStatusBadge({ design, status: statusProp }) {
+  const status = statusProp || getDesignStatus(design)
+  const label = isDesignInDyeing(design)
+    ? 'In Dyeing'
+    : DESIGN_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
   return (
-    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize ${PROCESS_STATUS_STYLES[status] || PROCESS_STATUS_STYLES.pending}`}>
+    <span
+      className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize ${DESIGN_STATUS_STYLES[status] || DESIGN_STATUS_STYLES.initiated}`}
+    >
       {label}
     </span>
   )
@@ -609,8 +608,12 @@ export default function StockManagement() {
                           {getDesignLabel(design)} · {getColorLabel(design)}
                         </span>
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted">{(design.units || 0).toLocaleString()} units</span>
-                          <ProcessStatusBadge status={design.processStatus || 'pending'} />
+                          <span className="text-xs text-muted">
+                            {getDesignStatus(design) === 'completed'
+                              ? `${design.actualUnits?.toLocaleString()} / ${(design.plannedUnits ?? design.units)?.toLocaleString()} units`
+                              : `${((design.plannedUnits ?? design.units) || 0).toLocaleString()} units`}
+                          </span>
+                          <DesignStatusBadge design={design} />
                         </div>
                       </div>
                     ))
@@ -775,7 +778,15 @@ export default function StockManagement() {
                                   {getColorLabel(design)}
                                 </td>
                                 <td className="px-6 py-4 text-right text-sm font-semibold text-charcoal">
-                                  {(design.units || 0).toLocaleString()}
+                                  {getDesignStatus(design) === 'completed' ? (
+                                    <span>
+                                      <span className="text-muted">{design.plannedUnits ?? design.units}</span>
+                                      <span className="mx-1 text-muted">→</span>
+                                      <span className="text-emerald-accent">{design.actualUnits}</span>
+                                    </span>
+                                  ) : (
+                                    ((design.plannedUnits ?? design.units) || 0).toLocaleString()
+                                  )}
                                 </td>
                                 <td className="px-6 py-4 text-sm text-muted">
                                   {(design.items || []).length} items
@@ -797,7 +808,7 @@ export default function StockManagement() {
                                   )}
                                 </td>
                                 <td className="px-6 py-4 text-right">
-                                  <ProcessStatusBadge status={design.processStatus || 'pending'} />
+                                  <DesignStatusBadge design={design} />
                                 </td>
                                 {canWrite && (
                                   <td className="px-6 py-4 text-right">
@@ -811,7 +822,11 @@ export default function StockManagement() {
                                             design,
                                           })
                                         }
-                                        className="rounded-lg p-1.5 text-muted hover:bg-cream hover:text-emerald-accent"
+                                        disabled={
+                                          getDesignStatus(design) === 'completed' ||
+                                          Boolean(design.dyeingJobId)
+                                        }
+                                        className="rounded-lg p-1.5 text-muted hover:bg-cream hover:text-emerald-accent disabled:cursor-not-allowed disabled:opacity-40"
                                       >
                                         <Pencil className="h-4 w-4" />
                                       </button>

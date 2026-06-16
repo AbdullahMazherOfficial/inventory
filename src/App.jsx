@@ -7,6 +7,7 @@ import DashboardOverview from './pages/DashboardOverview'
 import StockManagement from './pages/StockManagement'
 import PurchasesSupplies from './pages/PurchasesSupplies'
 import Reports from './pages/Reports'
+import ProcessDyeing from './pages/ProcessDyeing'
 
 function AuthenticatedApp({ onLogout }) {
   const [activePage, setActivePage] = useState('dashboard')
@@ -21,6 +22,8 @@ function AuthenticatedApp({ onLogout }) {
         return <PurchasesSupplies />
       case 'reports':
         return <Reports />
+      case 'process-dyeing':
+        return <ProcessDyeing />
       default:
         return <DashboardOverview />
     }

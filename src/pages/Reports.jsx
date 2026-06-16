@@ -9,8 +9,9 @@ import {
   getColorLabel,
   aggregateConsumptionByCloth,
   getItemConsumption,
+  getDesignStatus,
   PURCHASE_STATUS_LABELS,
-  PROCESS_STATUS_OPTIONS,
+  DESIGN_STATUS_OPTIONS,
 } from '../utils/inventoryHelpers'
 
 export default function Reports() {
@@ -26,8 +27,10 @@ export default function Reports() {
           volume.name,
           getDesignLabel(design),
           getColorLabel(design),
-          design.units || 0,
-          PROCESS_STATUS_OPTIONS.find((option) => option.value === design.processStatus)?.label || design.processStatus,
+          design.plannedUnits ?? design.units ?? 0,
+          design.actualUnits ?? '',
+          DESIGN_STATUS_OPTIONS.find((option) => option.value === getDesignStatus(design))?.label ||
+            getDesignStatus(design),
           item.name,
           item.clothType,
           item.metersPerUnit,
@@ -38,7 +41,7 @@ export default function Reports() {
 
     exportToCsv(
       'volume-stock-report.csv',
-      ['Volume', 'Design Code', 'Color Code', 'Units', 'Process Status', 'Item', 'Cloth Type', 'Meters/Unit', 'Total Meters'],
+      ['Volume', 'Design Code', 'Color Code', 'Planned Units', 'Actual Units', 'Status', 'Item', 'Cloth Type', 'Meters/Unit', 'Total Meters'],
       rows
     )
   }
@@ -117,7 +120,8 @@ export default function Reports() {
                     <tr className="border-b border-border bg-cream/50">
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Design</th>
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Color</th>
-                      <th className="px-6 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Units</th>
+                      <th className="px-6 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Planned</th>
+                      <th className="px-6 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Actual</th>
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Status</th>
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Items</th>
                       <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Fabric Reserve</th>
@@ -126,7 +130,7 @@ export default function Reports() {
                   <tbody>
                     {volume.designs.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-6 py-6 text-center text-sm text-muted">No designs in this volume.</td>
+                        <td colSpan={7} className="px-6 py-6 text-center text-sm text-muted">No designs in this volume.</td>
                       </tr>
                     ) : (
                       volume.designs.map((design) => (
@@ -134,9 +138,14 @@ export default function Reports() {
                           <td className="px-6 py-4 text-sm font-medium text-charcoal">{getDesignLabel(design)}</td>
                           <td className="px-6 py-4 text-sm text-charcoal">{getColorLabel(design)}</td>
                           <td className="px-6 py-4 text-right text-sm font-semibold text-charcoal">
-                            {(design.units || 0).toLocaleString()}
+                            {(design.plannedUnits ?? design.units ?? 0).toLocaleString()}
                           </td>
-                          <td className="px-6 py-4 text-sm text-muted capitalize">{design.processStatus || 'pending'}</td>
+                          <td className="px-6 py-4 text-right text-sm font-semibold text-emerald-accent">
+                            {design.actualUnits != null ? design.actualUnits.toLocaleString() : '—'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-muted capitalize">
+                            {getDesignStatus(design)}
+                          </td>
                           <td className="px-6 py-4 text-sm text-muted">
                             {(design.items || []).map((item) => item.name).join(', ') || '—'}
                           </td>

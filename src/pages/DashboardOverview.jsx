@@ -12,8 +12,10 @@ import {
   getDesignLabel,
   getColorLabel,
   getDesignTotalConsumption,
-  PROCESS_STATUS_OPTIONS,
-  PROCESS_STATUS_STYLES,
+  getDesignStatus,
+  isDesignInDyeing,
+  DESIGN_STATUS_OPTIONS,
+  DESIGN_STATUS_STYLES,
 } from '../utils/inventoryHelpers'
 
 function MetricCard({ icon: Icon, label, value, change, accent }) {
@@ -46,8 +48,10 @@ function MetricCard({ icon: Icon, label, value, change, accent }) {
 function DesignStockBar({ design, volumeName, maxMeters }) {
   const meters = getDesignTotalConsumption(design.items || [], design.units || 0)
   const percentage = Math.min((meters / maxMeters) * 100, 100)
-  const status = design.processStatus || 'pending'
-  const statusLabel = PROCESS_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
+  const status = getDesignStatus(design)
+  const statusLabel = isDesignInDyeing(design)
+    ? 'In Dyeing'
+    : DESIGN_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
 
   return (
     <div className="space-y-2">
@@ -56,7 +60,7 @@ function DesignStockBar({ design, volumeName, maxMeters }) {
           <span className="font-medium text-charcoal">{getDesignLabel(design)}</span>
           <span className="text-muted">· {getColorLabel(design)}</span>
           <span className="text-[10px] text-muted">({volumeName})</span>
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${PROCESS_STATUS_STYLES[status]}`}>
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${DESIGN_STATUS_STYLES[status] || DESIGN_STATUS_STYLES.initiated}`}>
             {statusLabel}
           </span>
         </div>

@@ -80,6 +80,10 @@ export function canWriteProduction(role) {
   return role === 'factory_admin'
 }
 
+export function canWriteProcess(role) {
+  return role === 'factory_admin'
+}
+
 export function canExportVolumesReport(role) {
   return role === 'factory_admin'
 }
@@ -118,18 +122,158 @@ export function computeRawMaterialStock(purchases, finishedGoodsStock, productio
   return stock
 }
 
-export const PROCESS_STATUS_OPTIONS = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'dyeing', label: 'Dyeing' },
-  { value: 'painting', label: 'Painting' },
-  { value: 'embroidery', label: 'Embroidery' },
+export const DESIGN_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'initiated', label: 'Initiated' },
+  { value: 'completed', label: 'Completed' },
 ]
 
-export const PROCESS_STATUS_STYLES = {
-  pending: 'bg-cream text-muted border border-border',
-  dyeing: 'bg-indigo-accent/10 text-indigo-accent',
-  painting: 'bg-gold/10 text-gold',
-  embroidery: 'bg-emerald-accent/10 text-emerald-accent',
+export const DESIGN_STATUS_STYLES = {
+  draft: 'bg-cream text-muted border border-border',
+  initiated: 'bg-indigo-accent/10 text-indigo-accent',
+  completed: 'bg-emerald-accent/10 text-emerald-accent',
+}
+
+/** @deprecated use DESIGN_STATUS_OPTIONS */
+export const PROCESS_STATUS_OPTIONS = DESIGN_STATUS_OPTIONS
+
+/** @deprecated use DESIGN_STATUS_STYLES */
+export const PROCESS_STATUS_STYLES = DESIGN_STATUS_STYLES
+
+export function getDesignStatus(design) {
+  if (design?.status) return design.status
+  const legacy = design?.processStatus
+  if (legacy === 'pending' || !legacy) return 'initiated'
+  if (legacy === 'embroidery' || legacy === 'painting' || legacy === 'dyeing') return 'completed'
+  return 'initiated'
+}
+
+export function isDesignInitiated(design) {
+  return getDesignStatus(design) === 'initiated' && !design?.dyeingJobId
+}
+
+export function isDesignInDyeing(design) {
+  return getDesignStatus(design) === 'initiated' && Boolean(design?.dyeingJobId)
+}
+
+export function generateDyeBatchSerial() {
+  const now = new Date()
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase()
+  return `DYE-${datePart}-${randomPart}`
+}
+
+export function getDesignClothTotals(design) {
+  return aggregateConsumptionByCloth(design.items || [], design.plannedUnits ?? design.units ?? 0)
+}
+
+export function mergeClothTotals(...totalsList) {
+  return totalsList.reduce((merged, totals) => {
+    Object.entries(totals || {}).forEach(([clothType, meters]) => {
+      merged[clothType] = (merged[clothType] || 0) + meters
+    })
+    return merged
+  }, {})
+}
+
+export function sortClothTotals(totals) {
+  return Object.entries(totals || {}).sort(([a], [b]) => a.localeCompare(b))
+}
+
+export function getAssignedClothForDesign(job, designId) {
+  const totals = {}
+  ;(job?.lots || []).forEach((lot) => {
+    ;(lot.assignments || []).forEach((assignment) => {
+      if (assignment.designId !== designId) return
+      totals[lot.clothType] = (totals[lot.clothType] || 0) + (assignment.assignedMeters || 0)
+    })
+  })
+  return totals
+}
+
+export function getTotalReceivedByCloth(job) {
+  const totals = {}
+  ;(job?.lots || []).forEach((lot) => {
+    totals[lot.clothType] = (totals[lot.clothType] || 0) + (lot.receivedMeters || 0)
+  })
+  return totals
+}
+
+export function computeActualUnitsForDesign(design, assignedClothByType) {
+  const items = design.items || []
+  if (items.length === 0) return 0
+
+  const unitsPerItem = items.map((item) => {
+    const assigned = assignedClothByType[item.clothType] || 0
+    if (item.metersPerUnit <= 0) return 0
+    return Math.floor(assigned / item.metersPerUnit)
+  })
+
+  return Math.min(...unitsPerItem)
+}
+
+export function computeDesignClothWastage(design, assignedClothByType) {
+  const plannedUnits = design.plannedUnits ?? design.units ?? 0
+  const planned = aggregateConsumptionByCloth(design.items || [], plannedUnits)
+  const wastage = {}
+
+  Object.entries(planned).forEach(([clothType, plannedMeters]) => {
+    const received = assignedClothByType[clothType] || 0
+    const lostMeters = Math.max(0, plannedMeters - received)
+    wastage[clothType] = {
+      plannedMeters,
+      receivedMeters: received,
+      lostMeters,
+      lossPercent: plannedMeters > 0 ? (lostMeters / plannedMeters) * 100 : 0,
+    }
+  })
+
+  return wastage
+}
+
+export function computeJobWastageSummary(job) {
+  const planned = job.plannedClothTotals || {}
+  const received = getTotalReceivedByCloth(job)
+  const byCloth = {}
+  let totalLostMeters = 0
+
+  Object.entries(planned).forEach(([clothType, plannedMeters]) => {
+    const receivedMeters = received[clothType] || 0
+    const lostMeters = Math.max(0, plannedMeters - receivedMeters)
+    totalLostMeters += lostMeters
+    byCloth[clothType] = {
+      plannedMeters,
+      receivedMeters,
+      lostMeters,
+      lossPercent: plannedMeters > 0 ? (lostMeters / plannedMeters) * 100 : 0,
+    }
+  })
+
+  return { byCloth, totalLostMeters }
+}
+
+export function computeDesignOutcomes(job, designsInVolume) {
+  return (job.designs || []).map((entry) => {
+    const design = designsInVolume.find((d) => d.id === entry.designId)
+    const assigned = getAssignedClothForDesign(job, entry.designId)
+    const plannedUnits = entry.plannedUnits ?? 0
+    const actualUnits = design ? computeActualUnitsForDesign(design, assigned) : 0
+    const varianceUnits = actualUnits - plannedUnits
+    const variancePercent = plannedUnits > 0 ? (varianceUnits / plannedUnits) * 100 : 0
+    const wastageByCloth = design ? computeDesignClothWastage(design, assigned) : {}
+
+    return {
+      designId: entry.designId,
+      designCode: entry.designCode,
+      colorCode: entry.colorCode,
+      plannedUnits,
+      actualUnits,
+      varianceUnits,
+      variancePercent,
+      wastageByCloth,
+      assignedCloth: assigned,
+    }
+  })
 }
 
 export function validateDesignCode(code) {
