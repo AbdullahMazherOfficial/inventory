@@ -6,10 +6,11 @@ import {
   exportToCsv,
   formatPKR,
   getDesignLabel,
-  getColorLabel,
+  getDesignColorSummary,
   aggregateConsumptionByCloth,
   getItemConsumption,
   getDesignStatus,
+  designRequiresDyeing,
   PURCHASE_STATUS_LABELS,
   DESIGN_STATUS_OPTIONS,
 } from '../utils/inventoryHelpers'
@@ -26,7 +27,8 @@ export default function Reports() {
         (design.items || []).map((item) => [
           volume.name,
           getDesignLabel(design),
-          getColorLabel(design),
+          item.colorCode || '',
+          designRequiresDyeing(design) ? 'Dyeing' : 'Raw Bypass',
           design.plannedUnits ?? design.units ?? 0,
           design.actualUnits ?? '',
           DESIGN_STATUS_OPTIONS.find((option) => option.value === getDesignStatus(design))?.label ||
@@ -41,7 +43,7 @@ export default function Reports() {
 
     exportToCsv(
       'volume-stock-report.csv',
-      ['Volume', 'Design Code', 'Color Code', 'Planned Units', 'Actual Units', 'Status', 'Item', 'Cloth Type', 'Meters/Unit', 'Total Meters'],
+      ['Volume', 'Design Code', 'Item Color', 'Route', 'Planned Units', 'Actual Units', 'Status', 'Item', 'Cloth Type', 'Meters/Unit', 'Total Meters'],
       rows
     )
   }
@@ -136,7 +138,7 @@ export default function Reports() {
                       volume.designs.map((design) => (
                         <tr key={design.id} className="border-b border-border/50 last:border-0 hover:bg-cream/30">
                           <td className="px-6 py-4 text-sm font-medium text-charcoal">{getDesignLabel(design)}</td>
-                          <td className="px-6 py-4 text-sm text-charcoal">{getColorLabel(design)}</td>
+                          <td className="px-6 py-4 text-sm text-charcoal">{getDesignColorSummary(design)}</td>
                           <td className="px-6 py-4 text-right text-sm font-semibold text-charcoal">
                             {(design.plannedUnits ?? design.units ?? 0).toLocaleString()}
                           </td>

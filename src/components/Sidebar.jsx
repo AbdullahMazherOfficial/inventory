@@ -7,6 +7,7 @@ import {
   Gem,
   Droplets,
   Cog,
+  Factory,
   ChevronDown,
   ChevronRight,
 } from 'lucide-react'
@@ -17,6 +18,7 @@ import { ROLE_LABELS } from '../utils/inventoryHelpers'
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'stock', label: 'Stock Management', icon: Package },
+  { id: 'production', label: 'Production', icon: Factory },
   { id: 'purchases', label: 'Purchases', icon: ShoppingCart },
   { id: 'reports', label: 'Reports', icon: FileText },
 ]

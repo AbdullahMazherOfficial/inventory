@@ -4,7 +4,8 @@ import { ROLE_LABELS } from '../utils/inventoryHelpers'
 
 const PAGE_TITLES = {
   dashboard: { title: 'Dashboard Overview', subtitle: 'Real-time inventory insights at a glance' },
-  stock: { title: 'Stock Management', subtitle: 'Manage volumes, designs, colors & fabric types' },
+  stock: { title: 'Stock Management', subtitle: 'Manage volumes, designs & fabric types — no stock deduction on create' },
+  production: { title: 'Production', subtitle: 'Volumes with finalized actual units after dyeing closure' },
   purchases: { title: 'Purchases', subtitle: 'Track raw materials and supply chain costs' },
   reports: { title: 'Reports', subtitle: 'Export volume stock or purchase history' },
   'process-dyeing': {

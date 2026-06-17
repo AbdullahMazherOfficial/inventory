@@ -42,20 +42,6 @@ export default function Login({ onLogin }) {
             A sophisticated inventory management platform designed for premium Pakistani
             fashion — track volumes, supplies, and sales with precision.
           </p>
-          <div className="mt-10 flex gap-8">
-            <div>
-              <p className="text-2xl font-semibold text-white">2.4K+</p>
-              <p className="text-xs text-white/40">Pieces Tracked</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-white">98%</p>
-              <p className="text-xs text-white/40">Accuracy Rate</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-white">12</p>
-              <p className="text-xs text-white/40">Active Volumes</p>
-            </div>
-          </div>
         </div>
 
         <p className="relative z-10 text-xs text-white/30">

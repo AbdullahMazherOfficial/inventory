@@ -21,17 +21,18 @@ import {
   getItemConsumption,
   aggregateConsumptionByCloth,
   getDesignLabel,
-  getColorLabel,
+  getDesignColorSummary,
   formatConsumptionFormula,
   getDesignStatus,
   isDesignInDyeing,
+  isDesignRawBypass,
   DESIGN_STATUS_OPTIONS,
   DESIGN_STATUS_STYLES,
 } from '../utils/inventoryHelpers'
 
-const EMPTY_ITEM_DRAFT = { name: '', clothType: '', metersPerUnit: 0 }
+const EMPTY_ITEM_DRAFT = { name: '', clothType: '', colorCode: '', metersPerUnit: 0 }
 
-function ClothTypeSelect({ value, onChange, options, getAvailable }) {
+function ClothTypeSelect({ value, onChange, options }) {
   return (
     <div className="relative">
       <Layers
@@ -48,7 +49,7 @@ function ClothTypeSelect({ value, onChange, options, getAvailable }) {
         ) : (
           options.map((type) => (
             <option key={type} value={type}>
-              {type} — {getAvailable(type).toLocaleString()} m available
+              {type}
             </option>
           ))
         )}
@@ -61,13 +62,13 @@ function ClothTypeSelect({ value, onChange, options, getAvailable }) {
   )
 }
 
-function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, onClose }) {
+function DesignModal({ design, volumeName, purchases, onSave, onClose }) {
   const clothTypes = getPurchasedFabricTypes(purchases)
   const isEditing = Boolean(design)
 
   const [designCode, setDesignCode] = useState(design?.designCode || design?.code || '')
-  const [colorCode, setColorCode] = useState(design?.colorCode || design?.color || '')
   const [units, setUnits] = useState(design?.units || 0)
+  const [requiresDyeing, setRequiresDyeing] = useState(design?.requiresDyeing !== false)
   const [savedItems, setSavedItems] = useState(
     design?.items?.map((item) => ({ ...item })) || []
   )
@@ -78,22 +79,17 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
   const [itemError, setItemError] = useState('')
   const [error, setError] = useState('')
 
-  const getAvailableForCloth = (clothType) => {
-    const base = rawMaterialStock[clothType] || 0
-    const existingTotal = isEditing
-      ? aggregateConsumptionByCloth(design.items || [], design.units || 0)[clothType] || 0
-      : 0
-    const currentTotal = aggregateConsumptionByCloth(savedItems, units)[clothType] || 0
-    return Math.max(0, base + existingTotal - currentTotal)
-  }
-
   const handleSaveItem = () => {
     if (!itemDraft.name.trim()) {
       setItemError('Item name is required.')
       return
     }
     if (!itemDraft.clothType) {
-      setItemError('Select a cloth type from purchased stock.')
+      setItemError('Select a cloth type.')
+      return
+    }
+    if (!itemDraft.colorCode.trim()) {
+      setItemError('Enter a color code for this item (e.g. J1).')
       return
     }
     if (itemDraft.metersPerUnit <= 0) {
@@ -105,20 +101,13 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
       return
     }
 
-    const itemTotal = getItemConsumption(itemDraft, units)
-    const available = getAvailableForCloth(itemDraft.clothType)
-
-    if (itemTotal > available) {
-      setItemError(`Only ${available.toLocaleString()} m available for ${itemDraft.clothType}.`)
-      return
-    }
-
     setSavedItems((prev) => [
       ...prev,
       {
         id: `item-${Date.now()}`,
         name: itemDraft.name.trim(),
         clothType: itemDraft.clothType,
+        colorCode: itemDraft.colorCode.trim().toUpperCase(),
         metersPerUnit: Number(itemDraft.metersPerUnit),
       },
     ])
@@ -134,8 +123,8 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
     e.preventDefault()
     const result = onSave({
       designCode,
-      colorCode,
       units,
+      requiresDyeing,
       items: savedItems,
     })
 
@@ -157,7 +146,7 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
               {isEditing ? 'Edit Design' : 'Add Design'}
             </h3>
             <p className="mt-1 text-sm text-muted">
-              Build a design with items — stock deducts when you save
+              Build a design with items — stock is deducted at dyeing or production, not here
             </p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1 text-muted hover:bg-cream hover:text-charcoal">
@@ -175,7 +164,7 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
         <form onSubmit={handleSubmit} className="space-y-6">
           <section className="rounded-2xl border border-border bg-cream/30 p-4">
             <p className="mb-4 text-xs font-semibold tracking-wide text-muted uppercase">Step 1 · Design Details</p>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Design Code</label>
                 <input
@@ -188,16 +177,6 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                 <p className="mt-1 text-[10px] text-muted">4-digit code</p>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Color Code</label>
-                <input
-                  value={colorCode}
-                  onChange={(e) => setColorCode(e.target.value.toUpperCase())}
-                  placeholder="J1"
-                  className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
-                />
-                <p className="mt-1 text-[10px] text-muted">e.g. J1, J2</p>
-              </div>
-              <div>
                 <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Units to Initiate</label>
                 <input
                   type="number"
@@ -207,16 +186,23 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                   placeholder="1500"
                   className="w-full rounded-xl border border-border bg-surface px-4 py-2.5 text-sm font-semibold focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
                 />
-                <p className="mt-1 text-[10px] text-muted">How many sets to produce</p>
+                <p className="mt-1 text-[10px] text-muted">Planned production units</p>
               </div>
-              {isEditing && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-charcoal uppercase">Status</label>
-                  <div className="flex h-[42px] items-center rounded-xl border border-border bg-cream/50 px-4">
-                    <DesignStatusBadge design={design} />
-                  </div>
-                </div>
-              )}
+            </div>
+            <div className="mt-4 flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+              <input
+                id="requiresDyeing"
+                type="checkbox"
+                checked={requiresDyeing}
+                onChange={(e) => setRequiresDyeing(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-indigo-accent focus:ring-indigo-accent"
+              />
+              <label htmlFor="requiresDyeing" className="text-sm text-charcoal">
+                <span className="font-medium">Requires Dyeing</span>
+                <span className="mt-0.5 block text-xs text-muted">
+                  Uncheck if this design uses raw stock as-is (deducted when moving to production)
+                </span>
+              </label>
             </div>
           </section>
 
@@ -249,7 +235,7 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-charcoal">{item.name}</p>
                         <span className="mt-1 inline-flex rounded-md bg-indigo-accent/10 px-2 py-0.5 text-[10px] font-medium text-indigo-accent">
-                          {item.clothType}
+                          {item.clothType} / {item.colorCode}
                         </span>
                       </div>
                       <div className="text-right">
@@ -275,13 +261,13 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
               <p className="mb-3 text-xs font-medium tracking-wide text-muted uppercase">
                 {savedItems.length === 0 ? 'Add your first item' : 'Add another item'}
               </p>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
                 <div>
                   <label className="mb-1 block text-[10px] font-medium text-muted uppercase">Item Name</label>
                   <input
                     value={itemDraft.name}
                     onChange={(e) => setItemDraft({ ...itemDraft, name: e.target.value })}
-                    placeholder="Kamiz, Shalwar, Dupatta..."
+                    placeholder="Shirt, Trouser, Patti..."
                     className="w-full rounded-xl border border-border bg-cream px-3 py-2.5 text-sm focus:border-emerald-accent focus:outline-none"
                   />
                 </div>
@@ -291,7 +277,17 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                     value={itemDraft.clothType}
                     onChange={(e) => setItemDraft({ ...itemDraft, clothType: e.target.value })}
                     options={clothTypes}
-                    getAvailable={getAvailableForCloth}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] font-medium text-muted uppercase">Color Code</label>
+                  <input
+                    value={itemDraft.colorCode}
+                    onChange={(e) =>
+                      setItemDraft({ ...itemDraft, colorCode: e.target.value.toUpperCase() })
+                    }
+                    placeholder="J1"
+                    className="w-full rounded-xl border border-border bg-cream px-3 py-2.5 text-sm focus:border-emerald-accent focus:outline-none"
                   />
                 </div>
                 <div>
@@ -310,12 +306,10 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
                 </div>
               </div>
 
-              {units > 0 && itemDraft.metersPerUnit > 0 && (
+              {units > 0 && itemDraft.metersPerUnit > 0 && itemDraft.colorCode && (
                 <div className="mt-3 rounded-lg bg-indigo-accent/5 px-3 py-2 text-xs text-indigo-accent">
-                  Preview: {formatConsumptionFormula(itemDraft.metersPerUnit, units)}
-                  {itemDraft.clothType && (
-                    <span className="text-muted"> · {getAvailableForCloth(itemDraft.clothType).toLocaleString()} m available</span>
-                  )}
+                  Preview: {formatConsumptionFormula(itemDraft.metersPerUnit, units)} ·{' '}
+                  {itemDraft.clothType}/{itemDraft.colorCode}
                 </div>
               )}
 
@@ -363,7 +357,9 @@ function DesignModal({ design, volumeName, purchases, rawMaterialStock, onSave, 
               )
             )}
             <p className="mt-3 text-xs text-muted">
-              Deducted from Raw Purchase Stock per cloth type when you click Add Design.
+              {requiresDyeing
+                ? 'Deducted from stock when volume moves to dyeing.'
+                : 'Deducted from stock when volume moves to production (raw as-is).'}
             </p>
           </section>
 
@@ -437,9 +433,9 @@ function VolumeModal({ onSave, onClose }) {
 
 function DesignStatusBadge({ design, status: statusProp }) {
   const status = statusProp || getDesignStatus(design)
-  const label = isDesignInDyeing(design)
-    ? 'In Dyeing'
-    : DESIGN_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
+  let label = DESIGN_STATUS_OPTIONS.find((option) => option.value === status)?.label || status
+  if (isDesignInDyeing(design)) label = 'In Dyeing'
+  if (isDesignRawBypass(design) && status === 'initiated') label = 'Initiated (Raw)'
   return (
     <span
       className={`inline-flex rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize ${DESIGN_STATUS_STYLES[status] || DESIGN_STATUS_STYLES.initiated}`}
@@ -500,7 +496,7 @@ export default function StockManagement() {
         )
         return (
           getDesignLabel(design).toLowerCase().includes(query) ||
-          getColorLabel(design).toLowerCase().includes(query) ||
+          getDesignColorSummary(design).toLowerCase().includes(query) ||
           itemMatch
         )
       }),
@@ -605,7 +601,7 @@ export default function StockManagement() {
                     volume.designs.map((design) => (
                       <div key={design.id} className="flex items-center justify-between text-sm">
                         <span className="text-charcoal">
-                          {getDesignLabel(design)} · {getColorLabel(design)}
+                          {getDesignLabel(design)} · {getDesignColorSummary(design)}
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted">
@@ -775,7 +771,7 @@ export default function StockManagement() {
                                   </button>
                                 </td>
                                 <td className="px-6 py-4 text-sm font-medium text-charcoal">
-                                  {getColorLabel(design)}
+                                  {getDesignColorSummary(design)}
                                 </td>
                                 <td className="px-6 py-4 text-right text-sm font-semibold text-charcoal">
                                   {getDesignStatus(design) === 'completed' ? (
@@ -895,7 +891,6 @@ export default function StockManagement() {
           design={designModal.design}
           volumeName={designModal.volumeName}
           purchases={purchases}
-          rawMaterialStock={rawMaterialStock}
           onSave={(data) => {
             if (designModal.design) {
               return updateDesign(designModal.volumeId, designModal.design.id, data)

@@ -4,40 +4,30 @@ import {
   INITIAL_PRODUCTION,
   INITIAL_PURCHASES,
   INITIAL_DYEING_JOBS,
+  INITIAL_PRODUCTION_VOLUMES,
 } from '../data/initialData'
 import {
   generateBatchSerial,
   getTodayDate,
-  computeRawMaterialStock,
+  computeAvailableStock,
   normalizeDesignItems,
   validateDesignCode,
-  validateItemsAgainstStock,
   generateDyeBatchSerial,
   getDesignStatus,
-  isDesignInitiated,
+  isDesignEligibleForDyeing,
+  designRequiresDyeing,
   getDesignClothTotals,
+  getDyeingSendTotals,
   mergeClothTotals,
   getDesignLabel,
-  getColorLabel,
+  validateStockAvailability,
+  distributeLotToItems,
   computeJobWastageSummary,
-  computeDesignOutcomes,
+  computeProductionVolumeOutcomes,
+  computeBypassDesignDeductions,
 } from '../utils/inventoryHelpers'
 
 const InventoryContext = createContext(null)
-
-function adjustFinishedStock(stock, volumeId, designId, delta) {
-  return stock.map((volume) => {
-    if (volume.id !== volumeId) return volume
-    return {
-      ...volume,
-      designs: volume.designs.map((design) =>
-        design.id === designId
-          ? { ...design, units: Math.max(0, (design.units || 0) + delta) }
-          : design
-      ),
-    }
-  })
-}
 
 export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
   const [role, setRole] = useState(initialRole)
@@ -45,10 +35,11 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
   const [production, setProduction] = useState(INITIAL_PRODUCTION)
   const [finishedGoodsStock, setFinishedGoodsStock] = useState(INITIAL_FINISHED_GOODS_STOCK)
   const [dyeingJobs, setDyeingJobs] = useState(INITIAL_DYEING_JOBS)
+  const [productionVolumes, setProductionVolumes] = useState(INITIAL_PRODUCTION_VOLUMES)
 
-  const rawMaterialStock = useMemo(
-    () => computeRawMaterialStock(purchases, finishedGoodsStock, production),
-    [purchases, finishedGoodsStock, production]
+  const availableStock = useMemo(
+    () => computeAvailableStock(purchases, dyeingJobs, productionVolumes),
+    [purchases, dyeingJobs, productionVolumes]
   )
 
   const addPurchase = useCallback((form) => {
@@ -56,24 +47,23 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
     const unitPrice = Number(form.unitPrice) || 0
     const materialType = form.materialType?.trim()
     const status = form.status || 'in_progress'
-
     if (!materialType || quantity <= 0) return false
 
-    const purchase = {
-      id: `pur-${Date.now()}`,
-      materialType,
-      vendor: form.vendor?.trim() || 'Unknown Vendor',
-      quantity,
-      unit: form.unit || 'meters',
-      unitPrice,
-      totalPrice: quantity * unitPrice,
-      date: getTodayDate(),
-      batchSerial: generateBatchSerial(),
-      status,
-    }
-
-    setPurchases((prev) => [...prev, purchase])
-
+    setPurchases((prev) => [
+      ...prev,
+      {
+        id: `pur-${Date.now()}`,
+        materialType,
+        vendor: form.vendor?.trim() || 'Unknown Vendor',
+        quantity,
+        unit: form.unit || 'meters',
+        unitPrice,
+        totalPrice: quantity * unitPrice,
+        date: getTodayDate(),
+        batchSerial: generateBatchSerial(),
+        status,
+      },
+    ])
     return true
   }, [])
 
@@ -82,104 +72,76 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
     const unitPrice = Number(form.unitPrice) || 0
     const materialType = form.materialType?.trim()
     const status = form.status || 'in_progress'
-
     if (!materialType || quantity <= 0) return false
 
     let updated = false
-
     setPurchases((prev) => {
-      const existing = prev.find((purchase) => purchase.id === id)
+      const existing = prev.find((p) => p.id === id)
       if (!existing) return prev
-
       updated = true
-      const nextPurchase = {
-        ...existing,
-        materialType,
-        vendor: form.vendor?.trim() || existing.vendor,
-        quantity,
-        unit: form.unit || existing.unit,
-        unitPrice,
-        totalPrice: quantity * unitPrice,
-        status,
-      }
-
-      return prev.map((purchase) => (purchase.id === id ? nextPurchase : purchase))
+      return prev.map((p) =>
+        p.id === id
+          ? {
+              ...p,
+              materialType,
+              vendor: form.vendor?.trim() || p.vendor,
+              quantity,
+              unit: form.unit || p.unit,
+              unitPrice,
+              totalPrice: quantity * unitPrice,
+              status,
+            }
+          : p
+      )
     })
-
     return updated
   }, [])
 
   const completePurchase = useCallback((id) => {
-    setPurchases((prev) => {
-      const existing = prev.find((purchase) => purchase.id === id)
-      if (!existing || existing.status === 'complete') return prev
-
-      return prev.map((purchase) =>
-        purchase.id === id ? { ...purchase, status: 'complete' } : purchase
-      )
-    })
+    setPurchases((prev) =>
+      prev.map((p) => (p.id === id && p.status !== 'complete' ? { ...p, status: 'complete' } : p))
+    )
   }, [])
 
   const deletePurchase = useCallback((id) => {
-    setPurchases((prev) => {
-      const existing = prev.find((purchase) => purchase.id === id)
-      if (!existing) return prev
-
-      return prev.filter((purchase) => purchase.id !== id)
-    })
-  }, [])
-
-  const applyProductionDelta = useCallback((entry, direction) => {
-    const multiplier = direction === 'apply' ? 1 : -1
-    const finishedPieces = entry.finishedPieces * multiplier
-
-    setFinishedGoodsStock((stock) =>
-      adjustFinishedStock(stock, entry.volumeId, entry.designId, finishedPieces)
-    )
+    setPurchases((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
   const addDesign = useCallback(
     (volumeId, form) => {
       const designCode = form.designCode?.trim()
-      const colorCode = form.colorCode?.trim()
       const units = Number(form.units) || 0
+      const requiresDyeing = form.requiresDyeing !== false
       const items = normalizeDesignItems(form.items)
 
       if (!validateDesignCode(designCode)) {
         return { success: false, error: 'Design code must be exactly 4 digits.' }
       }
-
-      if (!colorCode) {
-        return { success: false, error: 'Color code is required.' }
-      }
-
       if (units <= 0) {
-        return { success: false, error: 'Enter the number of units to initiate for this design.' }
+        return { success: false, error: 'Enter the number of units to initiate.' }
       }
-
       if (items.length === 0) {
         return { success: false, error: 'Add at least one item to the design.' }
       }
-
-      if (items.some((item) => !item.name || !item.clothType || item.metersPerUnit <= 0)) {
-        return { success: false, error: 'Each item needs a name, cloth type, and consumption in meters.' }
+      if (
+        items.some(
+          (item) => !item.name || !item.clothType || !item.colorCode || item.metersPerUnit <= 0
+        )
+      ) {
+        return {
+          success: false,
+          error: 'Each item needs a name, cloth type, color code, and meters per unit.',
+        }
       }
 
-      const stockCheck = validateItemsAgainstStock(items, rawMaterialStock, [], units)
-      if (!stockCheck.valid) {
-        return { success: false, error: stockCheck.error }
-      }
-
-      const volume = finishedGoodsStock.find((item) => item.id === volumeId)
-      if (!volume) {
-        return { success: false, error: 'Selected volume was not found.' }
-      }
+      const volume = finishedGoodsStock.find((v) => v.id === volumeId)
+      if (!volume) return { success: false, error: 'Volume not found.' }
 
       const design = {
         id: `d-${Date.now()}`,
         designCode,
-        colorCode,
         status: 'initiated',
+        requiresDyeing,
         units,
         plannedUnits: units,
         actualUnits: null,
@@ -192,198 +154,87 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
           vol.id === volumeId ? { ...vol, designs: [...vol.designs, design] } : vol
         )
       )
-
       return { success: true }
     },
-    [finishedGoodsStock, rawMaterialStock]
+    [finishedGoodsStock]
   )
 
   const updateDesign = useCallback(
     (volumeId, designId, form) => {
       const designCode = form.designCode?.trim()
-      const colorCode = form.colorCode?.trim()
       const units = Number(form.units) || 0
+      const requiresDyeing = form.requiresDyeing !== false
       const items = normalizeDesignItems(form.items)
 
       if (!validateDesignCode(designCode)) {
         return { success: false, error: 'Design code must be exactly 4 digits.' }
       }
-
-      if (!colorCode) {
-        return { success: false, error: 'Color code is required.' }
-      }
-
       if (units <= 0) {
-        return { success: false, error: 'Enter the number of units to initiate for this design.' }
+        return { success: false, error: 'Enter the number of units to initiate.' }
       }
-
       if (items.length === 0) {
         return { success: false, error: 'Add at least one item to the design.' }
       }
-
-      if (items.some((item) => !item.name || !item.clothType || item.metersPerUnit <= 0)) {
-        return { success: false, error: 'Each item needs a name, cloth type, and consumption in meters.' }
+      if (
+        items.some(
+          (item) => !item.name || !item.clothType || !item.colorCode || item.metersPerUnit <= 0
+        )
+      ) {
+        return {
+          success: false,
+          error: 'Each item needs a name, cloth type, color code, and meters per unit.',
+        }
       }
 
       const existing = finishedGoodsStock
-        .find((volume) => volume.id === volumeId)
-        ?.designs.find((design) => design.id === designId)
+        .find((v) => v.id === volumeId)
+        ?.designs.find((d) => d.id === designId)
 
-      if (!existing) {
-        return { success: false, error: 'Design not found.' }
-      }
-
-      if (getDesignStatus(existing) === 'completed') {
-        return { success: false, error: 'Completed designs cannot be edited.' }
-      }
-
-      if (existing.dyeingJobId) {
-        return { success: false, error: 'Design is in dyeing and cannot be edited.' }
-      }
-
-      const stockCheck = validateItemsAgainstStock(
-        items,
-        rawMaterialStock,
-        existing.items || [],
-        units,
-        existing.units || 0
-      )
-      if (!stockCheck.valid) {
-        return { success: false, error: stockCheck.error }
+      if (!existing) return { success: false, error: 'Design not found.' }
+      if (getDesignStatus(existing) !== 'initiated') {
+        return { success: false, error: 'Only initiated designs can be edited.' }
       }
 
       setFinishedGoodsStock((prev) =>
-        prev.map((volume) => {
-          if (volume.id !== volumeId) return volume
+        prev.map((vol) => {
+          if (vol.id !== volumeId) return vol
           return {
-            ...volume,
-            designs: volume.designs.map((design) =>
-              design.id === designId
-                ? {
-                    ...design,
-                    designCode,
-                    colorCode,
-                    units,
-                    plannedUnits: units,
-                    items,
-                  }
-                : design
+            ...vol,
+            designs: vol.designs.map((d) =>
+              d.id === designId
+                ? { ...d, designCode, units, plannedUnits: units, requiresDyeing, items }
+                : d
             ),
           }
         })
       )
-
       return { success: true }
     },
-    [finishedGoodsStock, rawMaterialStock]
-  )
-
-  const updateProduction = useCallback(
-    (id, form) => {
-      const existing = production.find((entry) => entry.id === id)
-      if (!existing) {
-        return { success: false, error: 'Production log not found.' }
-      }
-
-      const metersPerUnit = Number(form.metersPerUnit) || 0
-      const finishedPieces = Number(form.finishedPieces) || 0
-      const consumptionMeters =
-        Number(form.consumptionMeters) || metersPerUnit * finishedPieces || 0
-
-      if (
-        !form.clothType ||
-        consumptionMeters <= 0 ||
-        finishedPieces <= 0
-      ) {
-        return { success: false, error: 'Invalid production entry.' }
-      }
-
-      const restoredStock = {
-        ...rawMaterialStock,
-        [existing.clothType]:
-          (rawMaterialStock[existing.clothType] || 0) + existing.consumptionMeters,
-      }
-      const availableAfterRestore = restoredStock[form.clothType] || 0
-
-      if (consumptionMeters > availableAfterRestore) {
-        return { success: false, error: 'Insufficient raw stock for updated consumption.' }
-      }
-
-      const currentDesignUnits =
-        finishedGoodsStock
-          .find((item) => item.id === existing.volumeId)
-          ?.designs.find((item) => item.id === existing.designId)?.units || 0
-
-      if (currentDesignUnits - existing.finishedPieces + finishedPieces < 0) {
-        return { success: false, error: 'Cannot reduce finished pieces below zero.' }
-      }
-
-      applyProductionDelta(existing, 'reverse')
-
-      const updatedEntry = {
-        ...existing,
-        clothType: form.clothType,
-        consumptionMeters,
-        finishedPieces,
-        metersPerUnit: metersPerUnit || consumptionMeters / finishedPieces,
-      }
-
-      setProduction((prev) => prev.map((entry) => (entry.id === id ? updatedEntry : entry)))
-      applyProductionDelta(updatedEntry, 'apply')
-
-      setFinishedGoodsStock((prev) =>
-        prev.map((volume) => {
-          if (volume.id !== existing.volumeId) return volume
-          return {
-            ...volume,
-            designs: volume.designs.map((design) =>
-              design.id === existing.designId
-                ? { ...design, metersPerUnit: updatedEntry.metersPerUnit, fabric: form.clothType }
-                : design
-            ),
-          }
-        })
-      )
-
-      return { success: true }
-    },
-    [applyProductionDelta, finishedGoodsStock, production, rawMaterialStock]
-  )
-
-  const deleteProduction = useCallback(
-    (id) => {
-      const existing = production.find((entry) => entry.id === id)
-      if (!existing) return
-
-      applyProductionDelta(existing, 'reverse')
-      setProduction((prev) => prev.filter((entry) => entry.id !== id))
-    },
-    [applyProductionDelta, production]
+    [finishedGoodsStock]
   )
 
   const addVolume = useCallback((name) => {
     setFinishedGoodsStock((prev) => [
       ...prev,
-      { id: `vol-${Date.now()}`, name, designs: [] },
+      { id: `vol-${Date.now()}`, name, inProduction: false, designs: [] },
     ])
   }, [])
 
   const deleteVolume = useCallback((volumeId) => {
-    setFinishedGoodsStock((prev) => prev.filter((volume) => volume.id !== volumeId))
+    setFinishedGoodsStock((prev) => prev.filter((v) => v.id !== volumeId))
   }, [])
 
   const deleteDesign = useCallback((volumeId, designId) => {
     const existing = finishedGoodsStock
-      .find((volume) => volume.id === volumeId)
-      ?.designs.find((design) => design.id === designId)
-
-    if (!existing) return false
+      .find((v) => v.id === volumeId)
+      ?.designs.find((d) => d.id === designId)
+    if (!existing || getDesignStatus(existing) !== 'initiated') return false
 
     setFinishedGoodsStock((prev) =>
-      prev.map((volume) =>
-        volume.id === volumeId
-          ? { ...volume, designs: volume.designs.filter((design) => design.id !== designId) }
-          : volume
+      prev.map((vol) =>
+        vol.id === volumeId
+          ? { ...vol, designs: vol.designs.filter((d) => d.id !== designId) }
+          : vol
       )
     )
     return true
@@ -392,48 +243,54 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
   const sendVolumeToDyeing = useCallback(
     (volumeId) => {
       const volume = finishedGoodsStock.find((v) => v.id === volumeId)
-      if (!volume) {
-        return { success: false, error: 'Volume not found.' }
+      if (!volume) return { success: false, error: 'Volume not found.' }
+      if (volume.inProduction) {
+        return { success: false, error: 'Volume is already in production.' }
       }
 
       const activeJob = dyeingJobs.find(
-        (job) => job.volumeId === volumeId && job.status === 'in_dyeing'
+        (j) => j.volumeId === volumeId && j.status === 'in_dyeing'
       )
       if (activeJob) {
         return { success: false, error: 'This volume already has an active dyeing job.' }
       }
 
-      const eligibleDesigns = volume.designs.filter(isDesignInitiated)
-      if (eligibleDesigns.length === 0) {
-        return { success: false, error: 'No initiated designs available to send to dyeing.' }
+      const dyeDesigns = volume.designs.filter(isDesignEligibleForDyeing)
+      if (dyeDesigns.length === 0) {
+        return {
+          success: false,
+          error: 'No initiated dyeing designs in this volume. Raw bypass designs are not sent.',
+        }
       }
+
+      const stockNeeded = getDyeingSendTotals(dyeDesigns)
+      const stockCheck = validateStockAvailability(stockNeeded, availableStock)
+      if (!stockCheck.valid) return { success: false, error: stockCheck.error }
 
       const jobId = `dye-job-${Date.now()}`
       const sentAt = getTodayDate()
-      const batchSerial = generateDyeBatchSerial()
 
-      const jobDesigns = eligibleDesigns.map((design) => ({
+      const jobDesigns = dyeDesigns.map((design) => ({
         designId: design.id,
         designCode: getDesignLabel(design),
-        colorCode: getColorLabel(design),
         plannedUnits: design.plannedUnits ?? design.units ?? 0,
         clothTotals: getDesignClothTotals(design),
       }))
 
-      const plannedClothTotals = mergeClothTotals(...jobDesigns.map((d) => d.clothTotals))
-
       const job = {
         id: jobId,
-        batchSerial,
+        batchSerial: generateDyeBatchSerial(),
         volumeId,
         volumeName: volume.name,
         status: 'in_dyeing',
         sentAt,
-        completedAt: null,
+        closedAt: null,
         designs: jobDesigns,
-        plannedClothTotals,
+        plannedClothTotals: stockNeeded,
+        stockDeducted: { ...stockNeeded },
         lots: [],
         wastageSummary: null,
+        wastageDescription: null,
         designOutcomes: null,
       }
 
@@ -444,139 +301,163 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
           if (vol.id !== volumeId) return vol
           return {
             ...vol,
-            designs: vol.designs.map((design) => {
-              if (!eligibleDesigns.some((d) => d.id === design.id)) return design
-              return { ...design, dyeingJobId: jobId, sentToDyeingAt: sentAt }
-            }),
+            designs: vol.designs.map((d) =>
+              dyeDesigns.some((dd) => dd.id === d.id)
+                ? { ...d, status: 'in_dyeing', dyeingJobId: jobId, sentToDyeingAt: sentAt }
+                : d
+            ),
           }
         })
       )
 
       return { success: true, job }
     },
-    [finishedGoodsStock, dyeingJobs]
+    [finishedGoodsStock, dyeingJobs, availableStock]
   )
 
   const receiveDyeLot = useCallback(
     (jobId, form) => {
       const lotNumber = form.lotNumber?.trim()
       const clothType = form.clothType?.trim()
+      const colorCode = form.colorCode?.trim().toUpperCase()
       const receivedMeters = Number(form.receivedMeters) || 0
-      const assignments = form.assignments || []
+      const designId = form.designId
 
-      if (!lotNumber) {
-        return { success: false, error: 'Lot number is required.' }
+      if (!lotNumber) return { success: false, error: 'Lot number is required.' }
+      if (!clothType || !colorCode || receivedMeters <= 0) {
+        return { success: false, error: 'Enter fabric type, color code, and received meters.' }
       }
-      if (!clothType || receivedMeters <= 0) {
-        return { success: false, error: 'Enter cloth type and received meters.' }
-      }
+      if (!designId) return { success: false, error: 'Select a design to assign this lot to.' }
 
       const job = dyeingJobs.find((j) => j.id === jobId)
       if (!job || job.status !== 'in_dyeing') {
         return { success: false, error: 'Active dyeing job not found.' }
       }
 
-      const assignedTotal = assignments.reduce(
-        (sum, a) => sum + (Number(a.assignedMeters) || 0),
-        0
+      const volume = finishedGoodsStock.find((v) => v.id === job.volumeId)
+      const design = volume?.designs.find((d) => d.id === designId)
+      if (!design) return { success: false, error: 'Design not found in this volume.' }
+
+      const lotDraft = { clothType, colorCode, receivedMeters }
+      const matchingItems = (design.items || []).filter((item) =>
+        item.clothType?.trim() === clothType && item.colorCode?.trim() === colorCode
       )
-      if (assignedTotal > receivedMeters) {
+      if (matchingItems.length === 0) {
         return {
           success: false,
-          error: 'Assigned meters cannot exceed lot received meters.',
+          error: `Design ${getDesignLabel(design)} has no items matching ${clothType}/${colorCode}.`,
         }
       }
 
+      const itemDistribution = distributeLotToItems(lotDraft, design)
       const lot = {
         id: `lot-${Date.now()}`,
         lotNumber,
         clothType,
+        colorCode,
         receivedMeters,
+        designId,
         receivedAt: getTodayDate(),
-        assignments: assignments
-          .filter((a) => (Number(a.assignedMeters) || 0) > 0)
-          .map((a) => ({
-            designId: a.designId,
-            assignedMeters: Number(a.assignedMeters),
-          })),
+        itemDistribution,
       }
 
       setDyeingJobs((prev) =>
-        prev.map((j) =>
-          j.id === jobId ? { ...j, lots: [...(j.lots || []), lot] } : j
-        )
+        prev.map((j) => (j.id === jobId ? { ...j, lots: [...(j.lots || []), lot] } : j))
       )
 
       return { success: true, lot }
     },
-    [dyeingJobs]
+    [dyeingJobs, finishedGoodsStock]
   )
 
-  const completeDyeingJob = useCallback(
-    (jobId) => {
+  const closeDyeingAndMoveToProduction = useCallback(
+    (jobId, wastageDescription = '') => {
       const job = dyeingJobs.find((j) => j.id === jobId)
       if (!job || job.status !== 'in_dyeing') {
         return { success: false, error: 'Active dyeing job not found.' }
       }
 
-      if (!job.lots?.length) {
-        return { success: false, error: 'Receive at least one lot before completing dyeing.' }
-      }
-
       const volume = finishedGoodsStock.find((v) => v.id === job.volumeId)
-      if (!volume) {
-        return { success: false, error: 'Volume not found.' }
-      }
+      if (!volume) return { success: false, error: 'Volume not found.' }
 
       const wastageSummary = computeJobWastageSummary(job)
-      const designOutcomes = computeDesignOutcomes(job, volume.designs)
-      const completedAt = getTodayDate()
+      if (wastageSummary.totalLostMeters > 0 && !wastageDescription?.trim()) {
+        return {
+          success: false,
+          error: 'wastage_description_required',
+          wastageSummary,
+        }
+      }
+
+      const designOutcomes = computeProductionVolumeOutcomes(job, volume.designs)
+
+      const bypassDesigns = volume.designs.filter(
+        (d) => !designRequiresDyeing(d) && getDesignStatus(d) === 'initiated'
+      )
+      const rawStockDeductions = mergeClothTotals(
+        ...bypassDesigns.map((d) => computeBypassDesignDeductions(d))
+      )
+
+      const stockCheck = validateStockAvailability(rawStockDeductions, availableStock)
+      if (!stockCheck.valid) return { success: false, error: stockCheck.error }
+
+      const closedAt = getTodayDate()
 
       setDyeingJobs((prev) =>
         prev.map((j) =>
           j.id === jobId
             ? {
                 ...j,
-                status: 'completed',
-                completedAt,
+                status: 'closed',
+                closedAt,
                 wastageSummary,
+                wastageDescription: wastageDescription.trim(),
                 designOutcomes,
               }
             : j
         )
       )
 
+      const productionVolume = {
+        id: `prod-vol-${Date.now()}`,
+        volumeId: volume.id,
+        volumeName: volume.name,
+        dyeingJobId: jobId,
+        movedAt: closedAt,
+        rawStockDeductions,
+        designOutcomes,
+        wastageSummary,
+        wastageDescription: wastageDescription.trim(),
+      }
+
+      setProductionVolumes((prev) => [productionVolume, ...prev])
+
       setFinishedGoodsStock((prev) =>
         prev.map((vol) => {
           if (vol.id !== job.volumeId) return vol
           return {
             ...vol,
+            inProduction: true,
+            productionMovedAt: closedAt,
             designs: vol.designs.map((design) => {
               const outcome = designOutcomes.find((o) => o.designId === design.id)
               if (!outcome) return design
               return {
                 ...design,
-                status: 'completed',
+                status: 'in_production',
                 actualUnits: outcome.actualUnits,
                 plannedUnits: outcome.plannedUnits,
-                units: outcome.plannedUnits,
+                productionOutcome: outcome,
                 dyeingJobId: null,
-                dyeingCompletedAt: completedAt,
-                dyeingOutcome: {
-                  varianceUnits: outcome.varianceUnits,
-                  variancePercent: outcome.variancePercent,
-                  wastageByCloth: outcome.wastageByCloth,
-                  assignedCloth: outcome.assignedCloth,
-                },
               }
             }),
           }
         })
       )
 
-      return { success: true, wastageSummary, designOutcomes }
+      return { success: true, productionVolume, wastageSummary, designOutcomes }
     },
-    [dyeingJobs, finishedGoodsStock]
+    [dyeingJobs, finishedGoodsStock, availableStock]
   )
 
   const value = useMemo(
@@ -585,23 +466,23 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       setRole,
       purchases,
       production,
-      rawMaterialStock,
+      rawMaterialStock: availableStock,
+      availableStock,
       finishedGoodsStock,
       dyeingJobs,
+      productionVolumes,
       addPurchase,
       updatePurchase,
       completePurchase,
       deletePurchase,
       addDesign,
       updateDesign,
-      updateProduction,
-      deleteProduction,
       addVolume,
       deleteVolume,
       deleteDesign,
       sendVolumeToDyeing,
       receiveDyeLot,
-      completeDyeingJob,
+      closeDyeingAndMoveToProduction,
       volumes: finishedGoodsStock,
       supplies: purchases,
     }),
@@ -609,35 +490,30 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       role,
       purchases,
       production,
-      rawMaterialStock,
+      availableStock,
       finishedGoodsStock,
       dyeingJobs,
+      productionVolumes,
       addPurchase,
       updatePurchase,
       completePurchase,
       deletePurchase,
       addDesign,
       updateDesign,
-      updateProduction,
-      deleteProduction,
       addVolume,
       deleteVolume,
       deleteDesign,
       sendVolumeToDyeing,
       receiveDyeLot,
-      completeDyeingJob,
+      closeDyeingAndMoveToProduction,
     ]
   )
 
-  return (
-    <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>
-  )
+  return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>
 }
 
 export function useInventory() {
   const context = useContext(InventoryContext)
-  if (!context) {
-    throw new Error('useInventory must be used within InventoryProvider')
-  }
+  if (!context) throw new Error('useInventory must be used within InventoryProvider')
   return context
 }
