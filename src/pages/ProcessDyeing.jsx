@@ -247,8 +247,8 @@ function ActiveJobCard({ job, volumeDesigns, canWrite, onReceiveLot, onRequestCl
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 text-xs text-amber-700">
-                  Live wastage: {wastageLive.totalLostMeters.toLocaleString()} m ({wastageLive.overallLossPercent.toFixed(2)}%)
+                <p className="mt-2 text-lg font-semibold text-amber-700">
+                  Live Balance: {wastageLive.totalLostMeters.toLocaleString()} m ({wastageLive.overallLossPercent.toFixed(2)}%)
                 </p>
               </div>
             )}

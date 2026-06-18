@@ -63,6 +63,7 @@ export default function Header({ activePage }) {
             >
               <option value="supply_admin">Purchase Incharge</option>
               <option value="factory_admin">Factory Admin</option>
+              <option value="super_admin">Super Admin</option>
             </select>
           </div>
 

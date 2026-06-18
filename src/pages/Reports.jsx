@@ -3,6 +3,7 @@ import { useInventory } from '../context/InventoryContext'
 import {
   canExportPurchasesReport,
   canExportVolumesReport,
+  canExportProcessReport,
   exportToCsv,
   formatPKR,
   getDesignLabel,
@@ -16,10 +17,18 @@ import {
 } from '../utils/inventoryHelpers'
 
 export default function Reports() {
-  const { role, purchases, finishedGoodsStock, production } = useInventory()
+  const { 
+    role, 
+    purchases, 
+    finishedGoodsStock, 
+    production, 
+    productionVolumes, // Assuming your volume array is here or inside production
+    dyeingJobs 
+  } = useInventory()
 
   const canExportVolumes = canExportVolumesReport(role)
   const canExportPurchases = canExportPurchasesReport(role)
+  const canExportProcess = canExportProcessReport(role)
 
   const handleExportVolumes = () => {
     const rows = finishedGoodsStock.flatMap((volume) =>
@@ -254,6 +263,195 @@ export default function Reports() {
                     </td>
                   </tr>
                 ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (canExportProcess) {
+    // 1. Calculate high-level summary metrics across all tracked production/volumes
+    const totalVolumes = productionVolumes?.length || 0
+    
+    // Calculate global stats across all volumes
+    let globalTotalSent = 0
+    let globalTotalReceived = 0
+    let globalTotalWasted = 0
+    let globalPlannedUnits = 0
+    let globalActualUnits = 0
+
+    const volumeRows = (productionVolumes || []).map((volume) => {
+      let volumeSentMeters = 0
+      let volumeReceivedMeters = 0
+      let volumePlannedUnits = 0
+      let volumeActualUnits = 0
+
+      // Loop through designs inside this volume to calculate metrics
+      if (volume.designs) {
+        volume.designs.forEach((design) => {
+          volumePlannedUnits += design.plannedUnits || 0
+          volumeActualUnits += design.actualProducedUnits !== undefined ? design.actualProducedUnits : (design.plannedUnits || 0)
+          
+          if (design.items) {
+            design.items.forEach((item) => {
+              // Calculate fabric originally required/sent
+              const itemSent = (design.plannedUnits || 0) * (item.clothUsage || 0)
+              volumeSentMeters += itemSent
+
+              // Sum up matching chunked lots received for this item (matching type & color)
+              const matchedLots = (dyeingJobs || [])
+                .filter(job => job.volumeId === volume.id && job.designCode === design.designCode)
+                .filter(lot => lot.fabricType === item.fabricType && lot.colorCode === item.colorCode)
+              
+              const itemReceived = matchedLots.reduce((sum, lot) => sum + (lot.receivedMeters || 0), 0)
+              
+              // If it's an unmapped raw stock design (no lots registered), it bypasses dyeing 
+              // and uses raw stock as-is with 100% efficiency (no wastage).
+              if (matchedLots.length === 0 && !volume.hasDyeing) {
+                volumeReceivedMeters += itemSent
+              } else {
+                volumeReceivedMeters += itemReceived
+              }
+            })
+          }
+        })
+      }
+
+      const volumeWastedMeters = Math.max(0, volumeSentMeters - volumeReceivedMeters)
+      const volumeWastagePercentage = volumeSentMeters > 0 ? (volumeWastedMeters / volumeSentMeters) * 100 : 0
+
+      // Add to global totals
+      globalTotalSent += volumeSentMeters
+      globalTotalReceived += volumeReceivedMeters
+      globalTotalWasted += volumeWastedMeters
+      globalPlannedUnits += volumePlannedUnits
+      globalActualUnits += volumeActualUnits
+
+      return {
+        ...volume,
+        sentMeters: volumeSentMeters,
+        receivedMeters: volumeReceivedMeters,
+        wastedMeters: volumeWastedMeters,
+        wastagePercentage: volumeWastagePercentage,
+        plannedUnits: volumePlannedUnits,
+        actualUnits: volumeActualUnits
+      }
+    })
+
+    const handleExportProcess = () => {
+      // Placeholder for your CSV export handler
+      console.log("Exporting Process Logs...")
+    }
+
+    return (
+      <div className="space-y-6 p-8">
+        {/* Header Block */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-semibold text-charcoal">Process Report</h3>
+            <p className="text-sm text-muted">All manufacturing volumes, dyeing summaries, and production variances</p>
+          </div>
+          <button
+            type="button"
+            onClick={handleExportProcess}
+            className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-accent to-emerald-light px-5 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg"
+          >
+            <Download className="h-4 w-4" />
+            Export CSV
+          </button>
+        </div>
+
+        {/* Dynamic Metric Grid */}
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-4">
+          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+            <p className="text-xs font-medium tracking-wide text-muted uppercase">Active Volumes</p>
+            <p className="mt-2 text-3xl font-semibold text-charcoal">{totalVolumes}</p>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+            <p className="text-xs font-medium tracking-wide text-muted uppercase">Total Fabric Dispatched</p>
+            <p className="mt-2 text-3xl font-semibold text-charcoal">
+              {globalTotalSent.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
+            <p className="text-xs font-medium tracking-wide text-amber-600 uppercase">Total Fabric Loss (Wastage)</p>
+            <p className="mt-2 text-3xl font-semibold text-amber-600">
+              {globalTotalWasted.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} m 
+              <span className="text-sm font-normal text-muted ml-2">
+                ({globalTotalSent > 0 ? ((globalTotalWasted / globalTotalSent) * 100).toFixed(2) : 0}%)
+              </span>
+            </p>
+          </div>
+          <div className="rounded-2xl border border-gold/30 bg-gradient-to-br from-gold/5 to-gold-light/5 p-6 shadow-sm">
+            <p className="text-xs font-medium tracking-wide text-gold uppercase">Production Output Capability</p>
+            <p className="mt-2 text-3xl font-semibold text-charcoal">
+              {globalActualUnits.toLocaleString()} <span className="text-sm font-normal text-muted">/ {globalPlannedUnits.toLocaleString()} Units</span>
+            </p>
+          </div>
+        </div>
+
+        {/* Process Tracking Ledger */}
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border bg-cream/50">
+                  <th className="px-6 py-4 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Volume ID</th>
+                  <th className="px-6 py-4 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Raw Sent</th>
+                  <th className="px-6 py-4 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Dyed Recv</th>
+                  <th className="px-6 py-4 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Wastage (m / %)</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-semibold tracking-wider text-muted uppercase">Planned Units</th>
+                  <th className="px-6 py-4 text-center text-[11px] font-semibold tracking-wider text-muted uppercase">Actual Yield</th>
+                  <th className="px-6 py-4 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Wastage Logs / Remarks</th>
+                </tr>
+              </thead>
+              <tbody>
+                {volumeRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-8 text-center text-sm text-muted">
+                      No active processing volumes found.
+                    </td>
+                  </tr>
+                ) : (
+                  volumeRows.map((row) => (
+                    <tr key={row.id} className="border-b border-border/50 last:border-0 hover:bg-cream/30">
+                      <td className="px-6 py-4 text-sm font-semibold text-charcoal">{row.volumeName}</td>
+                      <td className="px-6 py-4 text-right text-sm text-charcoal">
+                        {row.sentMeters.toLocaleString(undefined, { maximumFractionDigits: 1 })} m
+                      </td>
+                      <td className="px-6 py-4 text-right text-sm text-charcoal">
+                        {row.receivedMeters.toLocaleString(undefined, { maximumFractionDigits: 1 })} m
+                      </td>
+                      <td className={`px-6 py-4 text-right text-sm font-medium ${row.wastedMeters > 0 ? 'text-amber-600' : 'text-muted'}`}>
+                        {row.wastedMeters > 0 ? (
+                          <>
+                            {row.wastedMeters.toLocaleString(undefined, { maximumFractionDigits: 1 })} m
+                            <span className="text-xs block font-normal text-muted">({row.wastagePercentage.toFixed(1)}%)</span>
+                          </>
+                        ) : (
+                          "0 m"
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-center text-sm text-muted">
+                        {row.plannedUnits.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 text-center text-sm font-semibold text-emerald-accent">
+                        {row.actualUnits.toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-muted max-w-xs truncate" title={row.wastageDescription || 'No constraints reported'}>
+                        {row.wastedMeters > 0 ? (
+                          <span className="text-charcoal italic text-xs bg-amber-50 rounded-lg px-2 py-1 border border-amber-100 block whitespace-normal">
+                            {row.wastageDescription || "Pending admin description logs..."}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted/60">Clean processing yield</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

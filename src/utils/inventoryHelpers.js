@@ -82,6 +82,10 @@ export function canExportPurchasesReport(role) {
   return role === 'supply_admin'
 }
 
+export function canExportProcessReport(role) {
+  return role === 'super_admin'
+}
+
 export function buildRawStockFromPurchases(purchases) {
   return purchases.reduce((stock, purchase) => {
     if (purchase.status === 'complete') {
