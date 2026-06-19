@@ -18,11 +18,19 @@ import {
   designRequiresDyeing,
   PURCHASE_STATUS_LABELS,
   DESIGN_STATUS_OPTIONS,
-  buildProductionDetailRows,
+  buildProductionDetailReport,
+  flattenProductionDetailReport,
   buildProcessReportRows,
   parseProductionDetailImport,
   PRODUCTION_DETAIL_HEADERS,
 } from '../utils/inventoryHelpers'
+
+function formatMeters(value) {
+  if (value === '' || value == null) return '—'
+  const num = Number(value)
+  if (Number.isNaN(num)) return String(value)
+  return `${num.toLocaleString(undefined, { maximumFractionDigits: 2 })} m`
+}
 
 function ExportButton({ onClick, label = 'Export CSV' }) {
   return (
@@ -315,7 +323,7 @@ function ProcessReportSection({ productionVolumes, dyeingJobs, onExport }) {
 }
 
 function ProductionDetailsSection({
-  rows,
+  reportSections,
   importedRecords,
   canImport,
   onExport,
@@ -324,32 +332,16 @@ function ProductionDetailsSection({
   importMessage,
   importError,
 }) {
-  const displayRows = importedRecords.length > 0
-    ? importedRecords.map((record) => [
-        record.volume,
-        record.dyer,
-        record.designCode,
-        record.route,
-        record.plannedUnits,
-        record.actualUnits,
-        record.balanceAtDyer,
-        record.clothType,
-        record.sentMeters,
-        record.receivedMeters,
-        record.remainingMeters,
-        record.status,
-      ])
-    : rows
-
   const fileInputRef = useRef(null)
+  const usingImport = importedRecords.length > 0
 
   return (
     <section className="space-y-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h3 className="text-base font-semibold text-charcoal">Production Details Report</h3>
+          <h3 className="text-base font-semibold text-charcoal">Dyeing Details Report</h3>
           <p className="text-sm text-muted">
-            Volume, dyer, designs, planned/actual units, balance at dyer, and cloth breakdown
+            Per-volume breakdown: designs, meters in/out per cloth, and balance remaining at dyer
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -400,49 +392,172 @@ function ProductionDetailsSection({
         </div>
       )}
 
-      {importedRecords.length > 0 && (
+      {usingImport && (
         <div className="rounded-xl border border-indigo-accent/20 bg-indigo-accent/5 px-4 py-3 text-sm text-indigo-accent">
           Viewing {importedRecords.length} imported records. Clear import to return to live data.
         </div>
       )}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border bg-cream/50">
-                {PRODUCTION_DETAIL_HEADERS.map((header) => (
-                  <th
-                    key={header}
-                    className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase whitespace-nowrap"
-                  >
-                    {header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {displayRows.length === 0 ? (
-                <tr>
-                  <td colSpan={PRODUCTION_DETAIL_HEADERS.length} className="px-6 py-8 text-center text-sm text-muted">
-                    No production details available yet. Send volumes to dyeing or import a CSV.
-                  </td>
-                </tr>
-              ) : (
-                displayRows.map((row, index) => (
-                  <tr key={`prod-row-${index}`} className="border-b border-border/50 last:border-0 hover:bg-cream/30">
-                    {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="px-4 py-3 text-sm text-charcoal whitespace-nowrap">
-                        {cell === '' || cell == null ? '—' : String(cell)}
-                      </td>
-                    ))}
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+      {!usingImport && reportSections.length === 0 && (
+        <div className="rounded-2xl border border-border bg-surface px-6 py-12 text-center text-sm text-muted shadow-sm">
+          No production details yet. Send a volume to dyeing or close a dyeing job to see meters in/out here.
         </div>
-      </div>
+      )}
+
+      {!usingImport && reportSections.map((section) => (
+        <div key={section.volumeId} className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="border-b border-border bg-cream/40 px-6 py-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-base font-semibold text-charcoal">{section.volumeName}</h4>
+                <p className="mt-1 text-xs text-muted">
+                  Dyer: <span className="font-medium text-charcoal">{section.dyer}</span>
+                  {' · '}Batch: <span className="font-medium text-charcoal">{section.batchSerial}</span>
+                  {section.sentAt && <> · Sent: {section.sentAt}</>}
+                  {section.closedAt && <> · Closed: {section.closedAt}</>}
+                </p>
+              </div>
+              <span className={`inline-flex w-fit rounded-full px-3 py-1 text-[10px] font-semibold uppercase ${
+                section.status === 'In Dyeing'
+                  ? 'bg-indigo-accent/10 text-indigo-accent'
+                  : 'bg-emerald-accent/10 text-emerald-accent'
+              }`}>
+                {section.status}
+              </span>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border bg-cream/50">
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Design</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Route</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Planned</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Actual</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase">Cloth</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Meters In</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Meters Out</th>
+                  <th className="px-4 py-3 text-right text-[11px] font-semibold tracking-wider text-muted uppercase">Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {section.designs.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-6 text-center text-sm text-muted">No designs in this volume.</td>
+                  </tr>
+                ) : (
+                  section.designs.map((design) =>
+                    design.clothLines.length === 0 ? (
+                      <tr key={design.designCode} className="border-b border-border/50 hover:bg-cream/20">
+                        <td className="px-4 py-3 text-sm font-medium text-charcoal">{design.designCode}</td>
+                        <td className="px-4 py-3 text-sm text-muted">{design.route}</td>
+                        <td className="px-4 py-3 text-right text-sm text-charcoal">{design.plannedUnits}</td>
+                        <td className="px-4 py-3 text-right text-sm text-emerald-accent">{design.actualUnits ?? '—'}</td>
+                        <td colSpan={4} className="px-4 py-3 text-sm text-muted">No cloth breakdown</td>
+                      </tr>
+                    ) : (
+                      design.clothLines.map((line, lineIndex) => (
+                        <tr
+                          key={`${design.designCode}-${line.clothType}`}
+                          className="border-b border-border/50 hover:bg-cream/20"
+                        >
+                          <td className="px-4 py-3 text-sm font-medium text-charcoal">
+                            {lineIndex === 0 ? design.designCode : ''}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-muted">
+                            {lineIndex === 0 ? design.route : ''}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm text-charcoal">
+                            {lineIndex === 0 ? Number(design.plannedUnits).toLocaleString() : ''}
+                          </td>
+                          <td className="px-4 py-3 text-right text-sm font-semibold text-emerald-accent">
+                            {lineIndex === 0
+                              ? (design.actualUnits !== '' && design.actualUnits != null
+                                  ? Number(design.actualUnits).toLocaleString()
+                                  : '—')
+                              : ''}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-charcoal">{line.clothType}</td>
+                          <td className="px-4 py-3 text-right text-sm text-charcoal">{formatMeters(line.metersIn)}</td>
+                          <td className="px-4 py-3 text-right text-sm text-charcoal">{formatMeters(line.metersOut)}</td>
+                          <td className={`px-4 py-3 text-right text-sm font-medium ${
+                            line.balanceRemaining > 0 ? 'text-amber-600' : 'text-muted'
+                          }`}>
+                            {formatMeters(line.balanceRemaining)}
+                          </td>
+                        </tr>
+                      ))
+                    )
+                  )
+                )}
+                {section.designs.length > 0 && (
+                  <tr className="border-t-2 border-charcoal/20 bg-charcoal/5">
+                    <td colSpan={2} className="px-4 py-4 text-sm font-bold text-charcoal uppercase tracking-wide">
+                      Volume Total
+                    </td>
+                    <td className="px-4 py-4 text-right text-sm font-bold text-charcoal">
+                      {section.volumeTotals.plannedUnits.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-4 text-right text-sm font-bold text-emerald-accent">
+                      {section.volumeTotals.actualUnits.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-4 text-sm font-medium text-muted">All cloth</td>
+                    <td className="px-4 py-4 text-right text-sm font-bold text-charcoal">
+                      {formatMeters(section.volumeTotals.metersIn)}
+                    </td>
+                    <td className="px-4 py-4 text-right text-sm font-bold text-charcoal">
+                      {formatMeters(section.volumeTotals.metersOut)}
+                    </td>
+                    <td className="px-4 py-4 text-right text-sm font-bold text-amber-700">
+                      {formatMeters(section.volumeTotals.balanceRemaining)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+
+      {usingImport && (
+        <div className="overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border bg-cream/50">
+                  {PRODUCTION_DETAIL_HEADERS.map((header) => (
+                    <th
+                      key={header}
+                      className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-muted uppercase whitespace-nowrap"
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {importedRecords.map((record) => (
+                  <tr key={record.id} className="border-b border-border/50 hover:bg-cream/30">
+                    <td className="px-4 py-3 text-sm">{record.volume}</td>
+                    <td className="px-4 py-3 text-sm">{record.dyer}</td>
+                    <td className="px-4 py-3 text-sm">{record.batchSerial || '—'}</td>
+                    <td className="px-4 py-3 text-sm">{record.designCode}</td>
+                    <td className="px-4 py-3 text-sm">{record.route}</td>
+                    <td className="px-4 py-3 text-sm">{record.plannedUnits}</td>
+                    <td className="px-4 py-3 text-sm">{record.actualUnits}</td>
+                    <td className="px-4 py-3 text-sm">{record.clothType}</td>
+                    <td className="px-4 py-3 text-sm">{record.sentMeters}</td>
+                    <td className="px-4 py-3 text-sm">{record.receivedMeters}</td>
+                    <td className="px-4 py-3 text-sm">{record.remainingMeters}</td>
+                    <td className="px-4 py-3 text-sm">{record.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </section>
   )
 }
@@ -470,11 +585,12 @@ export default function Reports() {
   const showAll = canViewAllReports(role)
   const canImport = canImportProductionDetails(role)
 
-  const productionDetailRows = buildProductionDetailRows(
+  const productionDetailReport = buildProductionDetailReport(
     finishedGoodsStock,
     dyeingJobs,
     productionVolumes
   )
+  const productionDetailRows = flattenProductionDetailReport(productionDetailReport)
 
   const handleExportVolumes = () => {
     const rows = finishedGoodsStock.flatMap((volume) =>
@@ -545,11 +661,11 @@ export default function Reports() {
       ? importedProductionRecords.map((record) => [
           record.volume,
           record.dyer,
+          record.batchSerial || '',
           record.designCode,
           record.route,
           record.plannedUnits,
           record.actualUnits,
-          record.balanceAtDyer,
           record.clothType,
           record.sentMeters,
           record.receivedMeters,
@@ -613,7 +729,7 @@ export default function Reports() {
             { label: 'Volume Stock', count: finishedGoodsStock.length, icon: FileSpreadsheet },
             { label: 'Purchases', count: purchases.length, icon: FileSpreadsheet },
             { label: 'Process Volumes', count: productionVolumes.length, icon: FileSpreadsheet },
-            { label: 'Production Rows', count: productionDetailRows.length, icon: FileSpreadsheet },
+            { label: 'Production Rows', count: productionDetailReport.length, icon: FileSpreadsheet },
           ].map(({ label, count, icon: Icon }) => (
             <div key={label} className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
               <div className="flex items-center gap-2 text-muted">
@@ -637,7 +753,7 @@ export default function Reports() {
           onExport={handleExportProcess}
         />
         <ProductionDetailsSection
-          rows={productionDetailRows}
+          reportSections={productionDetailReport}
           importedRecords={importedProductionRecords}
           canImport={canImport}
           onExport={handleExportProductionDetails}
@@ -675,7 +791,7 @@ export default function Reports() {
       )}
       {showProductionDetails && (
         <ProductionDetailsSection
-          rows={productionDetailRows}
+          reportSections={productionDetailReport}
           importedRecords={importedProductionRecords}
           canImport={canImport}
           onExport={handleExportProductionDetails}
