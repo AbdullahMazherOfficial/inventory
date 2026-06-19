@@ -54,7 +54,18 @@ export function exportToCsv(filename, headers, rows) {
 
 export const ROLE_LABELS = {
   supply_admin: 'Purchase Incharge',
-  factory_admin: 'Factory Admin',
+  production_manager: 'Production Manager',
+  super_admin: 'Super Admin',
+}
+
+export const DYER_OPTIONS = [
+  { value: 'alharam_dyeing', label: 'ALHARAM DYEING' },
+  { value: 'rk', label: 'RK' },
+  { value: 'general_dyeing', label: 'GNEREAL DYEING' },
+]
+
+export function getDyerLabel(dyerValue) {
+  return DYER_OPTIONS.find((d) => d.value === dyerValue)?.label || dyerValue || '—'
 }
 
 export const PURCHASE_STATUS_LABELS = {
@@ -66,23 +77,39 @@ export function canWritePurchases(role) {
   return role === 'supply_admin'
 }
 
+export function canFilterPurchases(role) {
+  return role === 'supply_admin' || role === 'super_admin'
+}
+
 export function canWriteProduction(role) {
-  return role === 'factory_admin'
+  return role === 'production_manager'
 }
 
 export function canWriteProcess(role) {
-  return role === 'factory_admin'
+  return role === 'production_manager'
 }
 
 export function canExportVolumesReport(role) {
-  return role === 'factory_admin'
+  return role === 'production_manager' || role === 'super_admin'
 }
 
 export function canExportPurchasesReport(role) {
-  return role === 'supply_admin'
+  return role === 'supply_admin' || role === 'super_admin'
 }
 
 export function canExportProcessReport(role) {
+  return role === 'super_admin'
+}
+
+export function canViewProductionDetailsReport(role) {
+  return role === 'production_manager' || role === 'super_admin'
+}
+
+export function canImportProductionDetails(role) {
+  return role === 'production_manager' || role === 'super_admin'
+}
+
+export function canViewAllReports(role) {
   return role === 'super_admin'
 }
 
@@ -475,4 +502,299 @@ export function formatConsumptionFormula(metersPerUnit, units) {
 
 export function getDesignTotalConsumption(items = [], units = 1) {
   return items.reduce((sum, item) => sum + getItemConsumption(item, units), 0)
+}
+
+export function parseCsv(text) {
+  const rows = []
+  let row = []
+  let cell = ''
+  let inQuotes = false
+
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i]
+    const next = text[i + 1]
+
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        cell += '"'
+        i += 1
+      } else if (char === '"') {
+        inQuotes = false
+      } else {
+        cell += char
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inQuotes = true
+    } else if (char === ',') {
+      row.push(cell.trim())
+      cell = ''
+    } else if (char === '\n' || (char === '\r' && next === '\n')) {
+      row.push(cell.trim())
+      if (row.some((value) => value !== '')) rows.push(row)
+      row = []
+      cell = ''
+      if (char === '\r') i += 1
+    } else if (char !== '\r') {
+      cell += char
+    }
+  }
+
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell.trim())
+    if (row.some((value) => value !== '')) rows.push(row)
+  }
+
+  return rows
+}
+
+export const PRODUCTION_DETAIL_HEADERS = [
+  'Volume',
+  'Dyer',
+  'Design Code',
+  'Route',
+  'Planned Units',
+  'Actual Units',
+  'Balance at Dyer (m)',
+  'Cloth Type',
+  'Sent (m)',
+  'Received (m)',
+  'Remaining (m)',
+  'Status',
+]
+
+function getJobReceivedByCloth(job) {
+  const received = {}
+  ;(job.lots || []).forEach((lot) => {
+    received[lot.clothType] = (received[lot.clothType] || 0) + (lot.receivedMeters || 0)
+  })
+  return received
+}
+
+export function buildProductionDetailRows(finishedGoodsStock, dyeingJobs, productionVolumes) {
+  const rows = []
+
+  dyeingJobs.forEach((job) => {
+    const volume = finishedGoodsStock.find((v) => v.id === job.volumeId)
+    const receivedByCloth = getJobReceivedByCloth(job)
+    const dyerLabel = getDyerLabel(job.dyer)
+
+    ;(job.designs || []).forEach((entry) => {
+      const design = volume?.designs.find((d) => d.id === entry.designId)
+      const plannedUnits = entry.plannedUnits ?? design?.plannedUnits ?? design?.units ?? 0
+      let actualUnits = design?.actualUnits ?? ''
+      if (job.status === 'closed' && job.designOutcomes) {
+        const outcome = job.designOutcomes.find((o) => o.designId === entry.designId)
+        actualUnits = outcome?.actualUnits ?? actualUnits
+      } else if (job.status === 'in_dyeing' && design) {
+        const receivedByItem = getReceivedMetersByItem(job, entry.designId, design)
+        actualUnits = computeDesignBottleneck(design, receivedByItem).actualUnits
+      }
+
+      const clothTotals = entry.clothTotals || getDesignClothTotals(design || { items: [] })
+      const clothEntries = Object.entries(clothTotals)
+
+      if (clothEntries.length === 0) {
+        rows.push([
+          job.volumeName,
+          dyerLabel,
+          entry.designCode,
+          'Dyeing',
+          plannedUnits,
+          actualUnits,
+          '',
+          '',
+          '',
+          '',
+          '',
+          job.status === 'closed' ? 'Closed' : 'In Dyeing',
+        ])
+        return
+      }
+
+      clothEntries.forEach(([clothType, sentMeters], index) => {
+        const jobSent = job.stockDeducted?.[clothType] || 0
+        const receivedMeters = receivedByCloth[clothType] || 0
+        const remainingMeters = Math.max(0, jobSent - receivedMeters)
+        const designShare = sentMeters
+        const balanceAtDyer = job.status === 'in_dyeing' ? remainingMeters : 0
+
+        rows.push([
+          job.volumeName,
+          dyerLabel,
+          entry.designCode,
+          'Dyeing',
+          index === 0 ? plannedUnits : '',
+          index === 0 ? actualUnits : '',
+          index === 0 ? balanceAtDyer : '',
+          clothType,
+          designShare,
+          receivedMeters,
+          remainingMeters,
+          index === 0 ? (job.status === 'closed' ? 'Closed' : 'In Dyeing') : '',
+        ])
+      })
+    })
+  })
+
+  productionVolumes.forEach((pv) => {
+    const job = dyeingJobs.find((j) => j.id === pv.dyeingJobId)
+    const dyerLabel = getDyerLabel(job?.dyer)
+
+    ;(pv.designOutcomes || []).forEach((outcome) => {
+      const clothBreakdown = outcome.itemBreakdown || []
+      if (clothBreakdown.length === 0) {
+        rows.push([
+          pv.volumeName,
+          dyerLabel,
+          outcome.designCode,
+          outcome.requiresDyeing === false ? 'Raw Bypass' : 'Dyeing',
+          outcome.plannedUnits,
+          outcome.actualUnits,
+          0,
+          '',
+          '',
+          '',
+          '',
+          'In Production',
+        ])
+        return
+      }
+
+      const clothGroups = {}
+      clothBreakdown.forEach((item) => {
+        const key = item.clothType
+        if (!clothGroups[key]) {
+          clothGroups[key] = { sent: 0, received: 0 }
+        }
+        clothGroups[key].sent += (item.metersPerUnit || 0) * (outcome.plannedUnits || 0)
+        clothGroups[key].received += item.receivedMeters || 0
+      })
+
+      Object.entries(clothGroups).forEach(([clothType, data], index) => {
+        rows.push([
+          pv.volumeName,
+          dyerLabel,
+          outcome.designCode,
+          outcome.requiresDyeing === false ? 'Raw Bypass' : 'Dyeing',
+          index === 0 ? outcome.plannedUnits : '',
+          index === 0 ? outcome.actualUnits : '',
+          index === 0 ? 0 : '',
+          clothType,
+          data.sent,
+          data.received,
+          Math.max(0, data.sent - data.received),
+          index === 0 ? 'In Production' : '',
+        ])
+      })
+    })
+  })
+
+  return rows
+}
+
+export function buildProcessReportRows(productionVolumes, dyeingJobs) {
+  return (productionVolumes || []).map((pv) => {
+    const job = dyeingJobs.find((j) => j.id === pv.dyeingJobId)
+    const sentMeters = job?.wastageSummary?.totalPlannedMeters
+      ?? Object.values(job?.stockDeducted || {}).reduce((s, v) => s + v, 0)
+    const receivedMeters = sentMeters - (pv.wastageSummary?.totalLostMeters || 0)
+    const wastedMeters = pv.wastageSummary?.totalLostMeters || 0
+    const wastagePercentage = sentMeters > 0 ? (wastedMeters / sentMeters) * 100 : 0
+    const plannedUnits = (pv.designOutcomes || []).reduce((s, o) => s + (o.plannedUnits || 0), 0)
+    const actualUnits = (pv.designOutcomes || []).reduce((s, o) => s + (o.actualUnits || 0), 0)
+
+    return {
+      id: pv.id,
+      volumeName: pv.volumeName,
+      dyer: getDyerLabel(job?.dyer),
+      sentMeters,
+      receivedMeters,
+      wastedMeters,
+      wastagePercentage,
+      plannedUnits,
+      actualUnits,
+      wastageDescription: pv.wastageDescription,
+    }
+  })
+}
+
+export function parseProductionDetailImport(text) {
+  const parsed = parseCsv(text)
+  if (parsed.length < 2) return { success: false, error: 'CSV must include a header row and at least one data row.' }
+
+  const headers = parsed[0].map((h) => h.toLowerCase().replace(/\s+/g, ' ').trim())
+  const findCol = (...names) => {
+    for (const name of names) {
+      const idx = headers.findIndex((h) => h.includes(name))
+      if (idx >= 0) return idx
+    }
+    return -1
+  }
+
+  const col = {
+    volume: findCol('volume'),
+    dyer: findCol('dyer'),
+    design: findCol('design'),
+    route: findCol('route'),
+    planned: findCol('planned'),
+    actual: findCol('actual'),
+    balance: findCol('balance'),
+    cloth: findCol('cloth'),
+    sent: findCol('sent'),
+    received: findCol('received'),
+    remaining: findCol('remaining'),
+    status: findCol('status'),
+  }
+
+  if (col.volume < 0 || col.design < 0) {
+    return { success: false, error: 'CSV must include at least Volume and Design Code columns.' }
+  }
+
+  const records = parsed.slice(1).map((row, index) => ({
+    id: `import-${Date.now()}-${index}`,
+    volume: row[col.volume] || '',
+    dyer: col.dyer >= 0 ? row[col.dyer] || '' : '',
+    designCode: row[col.design] || '',
+    route: col.route >= 0 ? row[col.route] || '' : '',
+    plannedUnits: col.planned >= 0 ? Number(row[col.planned]) || row[col.planned] : '',
+    actualUnits: col.actual >= 0 ? Number(row[col.actual]) || row[col.actual] : '',
+    balanceAtDyer: col.balance >= 0 ? Number(row[col.balance]) || row[col.balance] : '',
+    clothType: col.cloth >= 0 ? row[col.cloth] || '' : '',
+    sentMeters: col.sent >= 0 ? Number(row[col.sent]) || row[col.sent] : '',
+    receivedMeters: col.received >= 0 ? Number(row[col.received]) || row[col.received] : '',
+    remainingMeters: col.remaining >= 0 ? Number(row[col.remaining]) || row[col.remaining] : '',
+    status: col.status >= 0 ? row[col.status] || '' : '',
+    importedAt: getTodayDate(),
+  }))
+
+  return { success: true, records }
+}
+
+export function filterPurchases(purchases, filters = {}) {
+  const search = filters.search?.trim().toLowerCase() || ''
+  const status = filters.status || 'all'
+  const materialType = filters.materialType || 'all'
+  const vendor = filters.vendor || 'all'
+
+  return purchases.filter((purchase) => {
+    if (status !== 'all' && purchase.status !== status) return false
+    if (materialType !== 'all' && purchase.materialType !== materialType) return false
+    if (vendor !== 'all' && purchase.vendor !== vendor) return false
+    if (!search) return true
+
+    const haystack = [
+      purchase.batchSerial,
+      purchase.materialType,
+      purchase.vendor,
+      purchase.date,
+      PURCHASE_STATUS_LABELS[purchase.status],
+    ]
+      .join(' ')
+      .toLowerCase()
+
+    return haystack.includes(search)
+  })
 }

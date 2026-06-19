@@ -29,13 +29,14 @@ import {
 
 const InventoryContext = createContext(null)
 
-export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
+export function InventoryProvider({ children, initialRole = 'production_manager' }) {
   const [role, setRole] = useState(initialRole)
   const [purchases, setPurchases] = useState(INITIAL_PURCHASES)
   const [production, setProduction] = useState(INITIAL_PRODUCTION)
   const [finishedGoodsStock, setFinishedGoodsStock] = useState(INITIAL_FINISHED_GOODS_STOCK)
   const [dyeingJobs, setDyeingJobs] = useState(INITIAL_DYEING_JOBS)
   const [productionVolumes, setProductionVolumes] = useState(INITIAL_PRODUCTION_VOLUMES)
+  const [importedProductionRecords, setImportedProductionRecords] = useState([])
 
   const availableStock = useMemo(
     () => computeAvailableStock(purchases, dyeingJobs, productionVolumes),
@@ -241,7 +242,9 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
   }, [finishedGoodsStock])
 
   const sendVolumeToDyeing = useCallback(
-    (volumeId) => {
+    (volumeId, dyer) => {
+      if (!dyer) return { success: false, error: 'Select a dyer before sending to dyeing.' }
+
       const volume = finishedGoodsStock.find((v) => v.id === volumeId)
       if (!volume) return { success: false, error: 'Volume not found.' }
       if (volume.inProduction) {
@@ -282,6 +285,7 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
         batchSerial: generateDyeBatchSerial(),
         volumeId,
         volumeName: volume.name,
+        dyer,
         status: 'in_dyeing',
         sentAt,
         closedAt: null,
@@ -460,6 +464,18 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
     [dyeingJobs, finishedGoodsStock, availableStock]
   )
 
+  const importProductionDetails = useCallback((records) => {
+    if (!Array.isArray(records) || records.length === 0) {
+      return { success: false, error: 'No valid records to import.' }
+    }
+    setImportedProductionRecords(records)
+    return { success: true, count: records.length }
+  }, [])
+
+  const clearImportedProductionDetails = useCallback(() => {
+    setImportedProductionRecords([])
+  }, [])
+
   const value = useMemo(
     () => ({
       role,
@@ -471,6 +487,7 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       finishedGoodsStock,
       dyeingJobs,
       productionVolumes,
+      importedProductionRecords,
       addPurchase,
       updatePurchase,
       completePurchase,
@@ -483,6 +500,8 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       sendVolumeToDyeing,
       receiveDyeLot,
       closeDyeingAndMoveToProduction,
+      importProductionDetails,
+      clearImportedProductionDetails,
       volumes: finishedGoodsStock,
       supplies: purchases,
     }),
@@ -494,6 +513,7 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       finishedGoodsStock,
       dyeingJobs,
       productionVolumes,
+      importedProductionRecords,
       addPurchase,
       updatePurchase,
       completePurchase,
@@ -506,6 +526,8 @@ export function InventoryProvider({ children, initialRole = 'factory_admin' }) {
       sendVolumeToDyeing,
       receiveDyeLot,
       closeDyeingAndMoveToProduction,
+      importProductionDetails,
+      clearImportedProductionDetails,
     ]
   )
 

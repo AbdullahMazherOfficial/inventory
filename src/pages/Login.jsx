@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { Gem, Lock, User, Eye, EyeOff } from 'lucide-react'
 
 export default function Login({ onLogin }) {
-  const [role, setRole] = useState('factory_admin')
+  const [role, setRole] = useState('production_manager')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    if (password === 'admin' && (role === 'factory_admin' || role === 'supply_admin')) {
+    if (password === 'admin' && (role === 'production_manager' || role === 'supply_admin' || role === 'super_admin')) {
       onLogin(role)
     } else {
       setError('Invalid credentials. Use password: admin with a valid demo role.')
@@ -76,8 +76,9 @@ export default function Login({ onLogin }) {
                     onChange={(e) => setRole(e.target.value)}
                     className="w-full appearance-none rounded-xl border border-border bg-cream py-3 pr-4 pl-10 text-sm text-charcoal transition-colors focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
                   >
-                    <option value="factory_admin">Factory Admin</option>
+                    <option value="production_manager">Production Manager</option>
                     <option value="supply_admin">Purchase Incharge</option>
+                    <option value="super_admin">Super Admin</option>
                   </select>
                 </div>
               </div>
@@ -125,8 +126,9 @@ export default function Login({ onLogin }) {
             </form>
 
             <p className="mt-6 text-center text-xs text-muted">
-              Demo credentials: <span className="font-medium text-charcoal">factory_admin</span> or{' '}
-              <span className="font-medium text-charcoal">supply_admin</span> /{' '}
+              Demo credentials: <span className="font-medium text-charcoal">production_manager</span>,{' '}
+              <span className="font-medium text-charcoal">supply_admin</span>, or{' '}
+              <span className="font-medium text-charcoal">super_admin</span> /{' '}
               <span className="font-medium text-charcoal">admin</span>
             </p>
           </div>

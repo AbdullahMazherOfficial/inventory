@@ -28,6 +28,8 @@ import {
   getReceivedMetersByItem,
   computeDesignBottleneck,
   computeJobWastageSummary,
+  DYER_OPTIONS,
+  getDyerLabel,
 } from '../utils/inventoryHelpers'
 
 function StatusBadge({ design }) {
@@ -50,6 +52,35 @@ function ClothTags({ totals }) {
           {cloth}: {meters.toLocaleString()} m
         </span>
       ))}
+    </div>
+  )
+}
+
+function DyerSelectModal({ volumeName, onConfirm, onClose }) {
+  const [dyer, setDyer] = useState(DYER_OPTIONS[0].value)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-charcoal/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-surface p-6 shadow-2xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-charcoal">Select Dyer</h3>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-muted hover:bg-cream"><X className="h-5 w-5" /></button>
+        </div>
+        <p className="text-sm text-muted">Choose the dye house for <strong>{volumeName}</strong></p>
+        <select
+          value={dyer}
+          onChange={(e) => setDyer(e.target.value)}
+          className="mt-4 w-full rounded-xl border border-border bg-cream px-4 py-2.5 text-sm focus:outline-none"
+        >
+          {DYER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        <div className="mt-4 flex gap-3">
+          <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-border py-2.5 text-sm text-muted hover:bg-cream">Cancel</button>
+          <button type="button" onClick={() => onConfirm(dyer)} className="flex-1 rounded-xl bg-indigo-accent py-2.5 text-sm font-semibold text-white">Send to Dyeing</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -213,7 +244,7 @@ function ActiveJobCard({ job, volumeDesigns, canWrite, onReceiveLot, onRequestCl
             <div>
               <span className="inline-flex rounded-lg bg-indigo-accent px-2.5 py-1 text-xs font-semibold text-white">{job.batchSerial}</span>
               <p className="mt-1 text-sm font-semibold text-charcoal">{job.volumeName}</p>
-              <p className="text-xs text-muted">Sent {job.sentAt} · Stock deducted: {Object.values(job.stockDeducted || {}).reduce((s, v) => s + v, 0).toLocaleString()} m</p>
+              <p className="text-xs text-muted">Dyer: {getDyerLabel(job.dyer)} · Sent {job.sentAt} · Stock deducted: {Object.values(job.stockDeducted || {}).reduce((s, v) => s + v, 0).toLocaleString()} m</p>
             </div>
           </button>
           {canWrite && (
@@ -294,14 +325,16 @@ export default function ProcessDyeing() {
   const [feedback, setFeedback] = useState(null)
   const [error, setError] = useState('')
   const [wastageModal, setWastageModal] = useState(null)
+  const [dyerModal, setDyerModal] = useState(null)
 
   const activeJobs = dyeingJobs.filter((j) => j.status === 'in_dyeing')
 
-  const handleSend = (volumeId) => {
+  const handleSend = (volumeId, dyer) => {
     setError('')
-    const result = sendVolumeToDyeing(volumeId)
+    const result = sendVolumeToDyeing(volumeId, dyer)
     if (!result.success) { setError(result.error); return }
-    setFeedback({ message: `Sent to dyeing — ${result.job.batchSerial}. Stock deducted.` })
+    setDyerModal(null)
+    setFeedback({ message: `Sent to ${getDyerLabel(dyer)} — ${result.job.batchSerial}. Stock deducted.` })
   }
 
   const handleRequestClose = (jobId) => {
@@ -376,7 +409,7 @@ export default function ProcessDyeing() {
                   </div>
                 </button>
                 {canWrite && dyeEligible.length > 0 && !hasActive && (
-                  <button type="button" onClick={() => handleSend(volume.id)} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-accent to-charcoal px-4 py-2.5 text-xs font-semibold text-white shadow-md">
+                  <button type="button" onClick={() => setDyerModal({ volumeId: volume.id, volumeName: volume.name })} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-accent to-charcoal px-4 py-2.5 text-xs font-semibold text-white shadow-md">
                     <Droplets className="h-4 w-4" /> Move to Dyeing <ArrowRight className="h-4 w-4" />
                   </button>
                 )}
@@ -433,6 +466,14 @@ export default function ProcessDyeing() {
           wastageSummary={wastageModal.wastageSummary}
           onConfirm={(desc) => finalizeClose(wastageModal.jobId, desc)}
           onClose={() => setWastageModal(null)}
+        />
+      )}
+
+      {dyerModal && (
+        <DyerSelectModal
+          volumeName={dyerModal.volumeName}
+          onConfirm={(dyer) => handleSend(dyerModal.volumeId, dyer)}
+          onClose={() => setDyerModal(null)}
         />
       )}
     </div>

@@ -45,7 +45,7 @@ function AuthenticatedApp({ onLogout }) {
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [loginRole, setLoginRole] = useState('factory_admin')
+  const [loginRole, setLoginRole] = useState('production_manager')
 
   const handleLogin = (role) => {
     setLoginRole(role)

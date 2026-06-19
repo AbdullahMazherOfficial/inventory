@@ -62,7 +62,7 @@ export default function Header({ activePage }) {
               className="appearance-none rounded-xl border border-border bg-cream py-2 pr-8 pl-10 text-sm text-charcoal transition-colors focus:border-emerald-accent focus:ring-2 focus:ring-emerald-accent/20 focus:outline-none"
             >
               <option value="supply_admin">Purchase Incharge</option>
-              <option value="factory_admin">Factory Admin</option>
+              <option value="production_manager">Production Manager</option>
               <option value="super_admin">Super Admin</option>
             </select>
           </div>

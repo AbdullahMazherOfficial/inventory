@@ -1,10 +1,12 @@
-import { useState } from 'react'
-import { Plus, Pencil, Trash2, X, Package, CheckCircle } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Plus, Pencil, Trash2, X, Package, CheckCircle, Search, Filter } from 'lucide-react'
 import { useInventory } from '../context/InventoryContext'
 import {
   canWritePurchases,
+  canFilterPurchases,
   formatPKR,
   PURCHASE_STATUS_LABELS,
+  filterPurchases,
 } from '../utils/inventoryHelpers'
 
 const STATUS_STYLES = {
@@ -136,12 +138,39 @@ export default function PurchasesSupplies() {
   const { role, purchases, addPurchase, updatePurchase, completePurchase, deletePurchase } = useInventory()
   const [showModal, setShowModal] = useState(false)
   const [editingPurchase, setEditingPurchase] = useState(null)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [materialFilter, setMaterialFilter] = useState('all')
+  const [vendorFilter, setVendorFilter] = useState('all')
 
   const canWrite = canWritePurchases(role)
+  const canFilter = canFilterPurchases(role)
 
-  const grandTotal = purchases.reduce((sum, purchase) => sum + purchase.totalPrice, 0)
-  const totalQuantity = purchases.reduce((sum, purchase) => sum + purchase.quantity, 0)
-  const pendingPurchases = purchases.filter((purchase) => purchase.status === 'in_progress').length
+  const materialOptions = useMemo(
+    () => [...new Set(purchases.map((purchase) => purchase.materialType))].sort(),
+    [purchases]
+  )
+  const vendorOptions = useMemo(
+    () => [...new Set(purchases.map((purchase) => purchase.vendor))].sort(),
+    [purchases]
+  )
+
+  const filteredPurchases = useMemo(
+    () =>
+      canFilter
+        ? filterPurchases(purchases, {
+            search,
+            status: statusFilter,
+            materialType: materialFilter,
+            vendor: vendorFilter,
+          })
+        : purchases,
+    [purchases, canFilter, search, statusFilter, materialFilter, vendorFilter]
+  )
+
+  const grandTotal = filteredPurchases.reduce((sum, purchase) => sum + purchase.totalPrice, 0)
+  const totalQuantity = filteredPurchases.reduce((sum, purchase) => sum + purchase.quantity, 0)
+  const pendingPurchases = filteredPurchases.filter((purchase) => purchase.status === 'in_progress').length
 
   const handleSave = (form) => {
     if (editingPurchase) {
@@ -158,7 +187,7 @@ export default function PurchasesSupplies() {
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
         <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
           <p className="text-xs font-medium tracking-wide text-muted uppercase">Purchase Orders</p>
-          <p className="mt-2 text-3xl font-semibold text-charcoal">{purchases.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-charcoal">{filteredPurchases.length}</p>
         </div>
         <div className="rounded-2xl border border-border bg-surface p-6 shadow-sm">
           <p className="text-xs font-medium tracking-wide text-muted uppercase">In Progress</p>
@@ -171,6 +200,59 @@ export default function PurchasesSupplies() {
           </p>
         </div>
       </div>
+
+      {canFilter && (
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Filter className="h-4 w-4 text-emerald-accent" />
+            <h4 className="text-sm font-semibold text-charcoal">Filter Purchases</h4>
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="relative">
+              <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search batch, material, vendor..."
+                className="w-full rounded-xl border border-border bg-cream py-2.5 pr-4 pl-10 text-sm focus:border-emerald-accent focus:outline-none"
+              />
+            </div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-xl border border-border bg-cream px-4 py-2.5 text-sm focus:outline-none"
+            >
+              <option value="all">All Statuses</option>
+              <option value="in_progress">In Progress</option>
+              <option value="complete">Complete</option>
+            </select>
+            <select
+              value={materialFilter}
+              onChange={(e) => setMaterialFilter(e.target.value)}
+              className="rounded-xl border border-border bg-cream px-4 py-2.5 text-sm focus:outline-none"
+            >
+              <option value="all">All Materials</option>
+              {materialOptions.map((material) => (
+                <option key={material} value={material}>{material}</option>
+              ))}
+            </select>
+            <select
+              value={vendorFilter}
+              onChange={(e) => setVendorFilter(e.target.value)}
+              className="rounded-xl border border-border bg-cream px-4 py-2.5 text-sm focus:outline-none"
+            >
+              <option value="all">All Vendors</option>
+              {vendorOptions.map((vendor) => (
+                <option key={vendor} value={vendor}>{vendor}</option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            Showing {filteredPurchases.length} of {purchases.length} purchase orders
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <div>
@@ -213,7 +295,7 @@ export default function PurchasesSupplies() {
               </tr>
             </thead>
             <tbody>
-              {purchases.map((purchase) => (
+              {filteredPurchases.map((purchase) => (
                 <tr
                   key={purchase.id}
                   className="border-b border-border/50 transition-colors last:border-0 hover:bg-cream/30"
@@ -285,9 +367,9 @@ export default function PurchasesSupplies() {
             </tbody>
           </table>
         </div>
-        {purchases.length === 0 && (
+        {filteredPurchases.length === 0 && (
           <div className="px-6 py-12 text-center text-sm text-muted">
-            No purchase orders logged yet.
+            {purchases.length === 0 ? 'No purchase orders logged yet.' : 'No purchases match your filters.'}
           </div>
         )}
       </div>
@@ -297,7 +379,7 @@ export default function PurchasesSupplies() {
           <div>
             <p className="text-sm text-white/60">All purchases combined</p>
             <p className="text-xs text-white/40">
-              {totalQuantity.toLocaleString()} total units across {purchases.length} purchase entries
+              {totalQuantity.toLocaleString()} total units across {filteredPurchases.length} filtered purchase entries
             </p>
           </div>
           <div className="text-right">
